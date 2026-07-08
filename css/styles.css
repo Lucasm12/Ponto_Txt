@@ -1,0 +1,242 @@
+/* =========================================================
+   TXTInsight — estilos globais
+   Usa variáveis de tema do Bootstrap 5.3 (data-bs-theme)
+   e complementa com variáveis próprias para gradientes,
+   sombras e o layout tipo dashboard.
+   ========================================================= */
+
+:root{
+  --ti-primary: #4f46e5;
+  --ti-primary-2: #0ea5e9;
+  --ti-radius: 14px;
+  --ti-shadow-sm: 0 2px 10px rgba(15, 23, 42, .06);
+  --ti-shadow-md: 0 8px 30px rgba(15, 23, 42, .10);
+  --ti-transition: .18s ease;
+}
+
+[data-bs-theme="dark"]{
+  --ti-shadow-sm: 0 2px 10px rgba(0, 0, 0, .35);
+  --ti-shadow-md: 0 8px 30px rgba(0, 0, 0, .45);
+}
+
+body{
+  background: var(--bs-body-bg);
+  min-height: 100vh;
+  transition: background-color var(--ti-transition), color var(--ti-transition);
+}
+
+.text-gradient{
+  background: linear-gradient(90deg, var(--ti-primary), var(--ti-primary-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- Navbar ---------- */
+.app-navbar{
+  background: var(--bs-body-bg);
+  border-bottom: 1px solid var(--bs-border-color);
+}
+.brand-icon{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:10px;
+  background: linear-gradient(135deg, var(--ti-primary), var(--ti-primary-2));
+  color:#fff; font-size:1rem;
+}
+
+/* ---------- Barra de progresso no topo ---------- */
+.top-progress{
+  position: sticky; top:0; z-index: 1050; height:3px; width:100%;
+  background: transparent;
+}
+.top-progress-bar{
+  height:100%; width:35%;
+  background: linear-gradient(90deg, var(--ti-primary), var(--ti-primary-2));
+  animation: ti-indeterminate 1.1s infinite ease-in-out;
+}
+@keyframes ti-indeterminate{
+  0%{ transform: translateX(-100%); }
+  100%{ transform: translateX(300%); }
+}
+
+/* ---------- Área de importação ---------- */
+.hero-block{ animation: ti-fade-up .5s ease; }
+.drop-zone{
+  border: 2px dashed var(--bs-border-color);
+  border-radius: var(--ti-radius);
+  background: var(--bs-secondary-bg);
+  padding: 3.2rem 1.5rem;
+  text-align: center;
+  transition: all var(--ti-transition);
+  cursor: pointer;
+}
+.drop-zone:hover, .drop-zone.dragover{
+  border-color: var(--ti-primary);
+  background: color-mix(in srgb, var(--ti-primary) 6%, var(--bs-secondary-bg));
+  transform: translateY(-2px);
+}
+.drop-zone.dragover{ box-shadow: var(--ti-shadow-md); }
+.drop-icon{ font-size: 3.2rem; color: var(--ti-primary); }
+
+@keyframes ti-fade-up{
+  from{ opacity:0; transform: translateY(10px); }
+  to{ opacity:1; transform: translateY(0); }
+}
+
+/* ---------- Cards genéricos ---------- */
+.ti-card{
+  background: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--ti-radius);
+  box-shadow: var(--ti-shadow-sm);
+  transition: box-shadow var(--ti-transition), transform var(--ti-transition);
+}
+.ti-card:hover{ box-shadow: var(--ti-shadow-md); }
+
+/* ---------- Cabeçalho do relatório ---------- */
+.report-hero{
+  border-radius: var(--ti-radius);
+  background: linear-gradient(120deg, var(--ti-primary), var(--ti-primary-2));
+  color: #fff;
+  padding: 1.75rem;
+  position: relative;
+  overflow: hidden;
+}
+.report-hero::after{
+  content:"";
+  position:absolute; inset:0;
+  background: radial-gradient(circle at 85% 20%, rgba(255,255,255,.18), transparent 45%);
+  pointer-events: none;
+}
+.report-hero .meta-pill{
+  background: rgba(255,255,255,.16);
+  border-radius: 999px;
+  padding: .35rem .8rem;
+  font-size: .8rem;
+  display:inline-flex; align-items:center; gap:.4rem;
+}
+
+/* ---------- KPI stat cards ---------- */
+.stat-card{
+  padding: 1.1rem 1.2rem;
+  display:flex; align-items:center; gap:.9rem;
+}
+.stat-icon{
+  width:46px; height:46px; border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.25rem; flex-shrink:0;
+}
+/* Bootstrap 5 não inclui um utilitário min-w-0 por padrão: sem isto, o
+   filho flex não encolhe e o text-truncate do valor do card não funciona
+   para valores longos (ex.: um intervalo de datas extenso), estourando o layout. */
+.stat-card .min-w-0{ min-width:0; }
+.stat-value{ font-size:1.4rem; font-weight:700; line-height:1.1; }
+.stat-label{ font-size:.78rem; color: var(--bs-secondary-color); text-transform:uppercase; letter-spacing:.03em; }
+
+/* ---------- Seções (tabelas / texto) ---------- */
+.section-card .section-header{
+  padding: .9rem 1.15rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  display:flex; align-items:center; justify-content:space-between; gap:.6rem;
+  flex-wrap: wrap;
+}
+.section-card .section-title{
+  font-weight:700; font-size:1rem; display:flex; align-items:center; gap:.55rem; margin:0;
+}
+.section-card .section-body{ padding: 1.1rem; }
+.section-badge{ font-size:.72rem; }
+
+/* ---------- Tabelas ---------- */
+.ti-table-toolbar{ display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-bottom:.85rem; }
+.ti-table-toolbar .search-wrap{ position:relative; flex:1 1 220px; min-width:200px; }
+.ti-table-toolbar .search-wrap i{ position:absolute; left:.7rem; top:50%; transform:translateY(-50%); color:var(--bs-secondary-color); }
+.ti-table-toolbar .search-wrap input{ padding-left:2.1rem; }
+
+.ti-table-wrap{ overflow-x:auto; }
+table.ti-table{ width:100%; font-size:.88rem; }
+table.ti-table thead th{
+  cursor:pointer; user-select:none; white-space:nowrap;
+  background: var(--bs-tertiary-bg);
+  position: sticky; top:0;
+}
+table.ti-table thead th .sort-icon{ opacity:.4; margin-left:.25rem; font-size:.75rem; }
+table.ti-table thead th.sorted .sort-icon{ opacity:1; color: var(--ti-primary); }
+table.ti-table tbody tr:hover{ background: var(--bs-tertiary-bg); }
+table.ti-table td, table.ti-table th{ vertical-align:middle; }
+
+.ti-pagination-bar{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.6rem; margin-top:.75rem; }
+
+.badge-event-I{ background:#0ea5e9 !important; }
+.badge-event-A{ background:#f59e0b !important; }
+.badge-event-E{ background:#ef4444 !important; }
+.highlight-cell{ font-weight:700; color: var(--ti-primary); }
+
+/* Estatísticas numéricas dentro de uma tabela (soma/média/etc.) */
+.col-stats-row{ display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.9rem; }
+.col-stats-row .mini-stat{
+  background: var(--bs-tertiary-bg); border-radius:10px; padding:.4rem .75rem; font-size:.78rem;
+}
+.col-stats-row .mini-stat b{ color: var(--ti-primary); }
+
+/* ---------- Texto bruto ---------- */
+.raw-text-box{
+  background: var(--bs-tertiary-bg);
+  border-radius:10px;
+  padding: .9rem 1rem;
+  max-height: 420px;
+  overflow:auto;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size:.8rem;
+  white-space: pre;
+}
+.raw-text-box .ln{ color: var(--bs-secondary-color); display:inline-block; width:3.4em; user-select:none; }
+
+/* ---------- Charts ---------- */
+.chart-card canvas{ max-height: 300px; }
+
+/* ---------- Histórico ---------- */
+.history-item{
+  border:1px solid var(--bs-border-color);
+  border-radius:12px;
+  padding:.75rem .9rem;
+  margin-bottom:.6rem;
+  transition: var(--ti-transition);
+}
+.history-item:hover{ border-color: var(--ti-primary); box-shadow: var(--ti-shadow-sm); }
+.history-item .fname{ font-weight:600; font-size:.9rem; word-break:break-all; }
+.history-item .fmeta{ font-size:.75rem; color: var(--bs-secondary-color); }
+
+/* ---------- Loading overlay ---------- */
+.loading-overlay{
+  position: fixed; inset:0; z-index: 2000;
+  background: rgba(15,23,42,.45);
+  backdrop-filter: blur(2px);
+  display:flex; align-items:center; justify-content:center;
+}
+.loading-box{
+  background: var(--bs-body-bg);
+  border-radius: var(--ti-radius);
+  padding: 2rem 2.4rem;
+  width: min(90vw, 360px);
+  text-align:center;
+}
+
+/* ---------- Utilitário ---------- */
+.cursor-pointer{ cursor:pointer; }
+.fw-700{ font-weight:700; }
+.text-truncate-2{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-thumb{ background: var(--bs-secondary-color); border-radius:10px; opacity:.4; }
+::-webkit-scrollbar-track{ background: transparent; }
+
+/* ---------- Impressão ---------- */
+@media print{
+  .app-navbar, footer, .d-print-none, .ti-table-toolbar, .ti-pagination-bar, .section-toolbar{ display:none !important; }
+  .section-card, .ti-card{ box-shadow:none !important; border:1px solid #ccc !important; break-inside: avoid; }
+  body{ background:#fff !important; }
+  .raw-text-box{ max-height:none !important; }
+}

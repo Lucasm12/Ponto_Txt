@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leitor Inteligente de TXT &middot; Dashboard de Relatórios</title>
+<meta name="description" content="Importe arquivos .txt e visualize relatórios organizados automaticamente em dashboards.">
+
+<!-- Bootstrap 5 -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Bootstrap Icons -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<!-- Estilos próprios -->
+<link href="css/styles.css" rel="stylesheet">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+
+<!-- ===================== NAVBAR ===================== -->
+<nav class="navbar navbar-expand-lg sticky-top app-navbar shadow-sm" id="appNavbar">
+  <div class="container-fluid px-3 px-lg-4">
+    <a class="navbar-brand d-flex align-items-center gap-2" href="#" id="brandHome">
+      <span class="brand-icon"><i class="bi bi-file-earmark-bar-graph-fill"></i></span>
+      <span class="fw-bold">TXT<span class="text-gradient">Insight</span></span>
+    </a>
+
+    <div class="d-flex align-items-center gap-2 ms-auto">
+      <button class="btn btn-outline-secondary btn-sm d-none" id="btnNewFile" title="Importar novo arquivo">
+        <i class="bi bi-file-earmark-plus"></i> <span class="d-none d-md-inline">Novo arquivo</span>
+      </button>
+
+      <button class="btn btn-outline-secondary btn-sm" id="btnHistory" title="Histórico de importações" data-bs-toggle="offcanvas" data-bs-target="#historyOffcanvas">
+        <i class="bi bi-clock-history"></i> <span class="d-none d-md-inline">Histórico</span>
+      </button>
+
+      <button class="btn btn-outline-secondary btn-sm" id="btnTheme" title="Alternar tema claro/escuro">
+        <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- ===================== PROGRESS BAR (topo, estilo "carregando página") ===================== -->
+<div id="topProgress" class="top-progress d-none"><div class="top-progress-bar"></div></div>
+
+<!-- ===================== VIEW: IMPORTAÇÃO ===================== -->
+<main id="importView" class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-9 col-xl-7">
+
+      <div class="text-center mb-4 hero-block">
+        <h1 class="display-6 fw-bold mb-2">Transforme arquivos <span class="text-gradient">.txt</span> em relatórios inteligentes</h1>
+        <p class="text-secondary fs-5">Arraste um arquivo, e o sistema identifica a estrutura, organiza os dados e monta um dashboard completo automaticamente.</p>
+      </div>
+
+      <div id="dropZone" class="drop-zone shadow-sm">
+        <input type="file" id="fileInput" accept=".txt,text/plain" hidden>
+        <div class="drop-zone-content">
+          <i class="bi bi-cloud-arrow-up-fill drop-icon"></i>
+          <h5 class="mt-3 mb-1">Arraste e solte seu arquivo .txt aqui</h5>
+          <p class="text-secondary mb-3">ou</p>
+          <button class="btn btn-primary btn-lg px-4" id="btnBrowse">
+            <i class="bi bi-folder2-open me-2"></i>Importar Arquivo TXT
+          </button>
+          <p class="text-secondary small mt-3 mb-0">Nenhum arquivo é enviado a servidores — tudo é processado no seu navegador.</p>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h6 class="text-secondary text-uppercase small fw-bold mb-0"><i class="bi bi-clock-history me-1"></i>Importações recentes</h6>
+          <a href="#" class="small" id="linkSeeAllHistory" data-bs-toggle="offcanvas" data-bs-target="#historyOffcanvas">ver tudo</a>
+        </div>
+        <div id="recentHistoryList" class="list-group shadow-sm">
+          <div class="text-secondary small p-3 text-center" id="recentHistoryEmpty">Nenhum arquivo importado ainda.</div>
+        </div>
+      </div>
+
+      <div class="row mt-5 g-3 text-center">
+        <div class="col-4">
+          <i class="bi bi-diagram-3 fs-3 text-primary"></i>
+          <p class="small text-secondary mb-0 mt-1">Detecção automática de estrutura</p>
+        </div>
+        <div class="col-4">
+          <i class="bi bi-bar-chart-line fs-3 text-primary"></i>
+          <p class="small text-secondary mb-0 mt-1">Gráficos e indicadores</p>
+        </div>
+        <div class="col-4">
+          <i class="bi bi-download fs-3 text-primary"></i>
+          <p class="small text-secondary mb-0 mt-1">Exportação em PDF/Excel/CSV</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<!-- ===================== VIEW: RELATÓRIO ===================== -->
+<main id="reportView" class="container-fluid px-3 px-lg-4 py-4 d-none">
+  <div id="reportContainer"></div>
+</main>
+
+<!-- ===================== OFFCANVAS: HISTÓRICO ===================== -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="historyOffcanvas">
+  <div class="offcanvas-header">
+    <h5 class="offcanvas-title"><i class="bi bi-clock-history me-2"></i>Histórico de importações</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body d-flex flex-column">
+    <button class="btn btn-outline-danger btn-sm mb-3" id="btnClearHistory">
+      <i class="bi bi-trash3 me-1"></i>Limpar histórico
+    </button>
+    <div id="historyList" class="flex-grow-1 overflow-auto"></div>
+  </div>
+</div>
+
+<!-- ===================== LOADING OVERLAY ===================== -->
+<div id="loadingOverlay" class="loading-overlay d-none">
+  <div class="loading-box shadow-lg">
+    <div class="spinner-border text-primary mb-3" role="status"></div>
+    <div id="loadingText" class="fw-semibold mb-2">Lendo arquivo...</div>
+    <div class="progress w-100" style="height:8px;">
+      <div id="loadingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+    </div>
+  </div>
+</div>
+
+<footer class="text-center text-secondary small py-4 d-print-none">
+  TXTInsight &middot; processamento 100% local no navegador
+</footer>
+
+<!-- ===================== BIBLIOTECAS EXTERNAS ===================== -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- ===================== NÚCLEO DA APLICAÇÃO ===================== -->
+<script src="js/utils.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/theme.js"></script>
+
+<!-- Registro de parsers (arquitetura plugável) -->
+<script src="js/parsers/parserRegistry.js"></script>
+<script src="js/parsers/afdParser.js"></script>
+<script src="js/parsers/genericParsers.js"></script>
+<script src="js/parsers/plainTextParser.js"></script>
+
+<!-- Componentes de UI reutilizáveis -->
+<script src="components/statCard.js"></script>
+<script src="components/sectionCard.js"></script>
+<script src="components/tableComponent.js"></script>
+<script src="components/historyPanel.js"></script>
+
+<!-- Módulos de aplicação -->
+<script src="js/charts.js"></script>
+<script src="js/reportRenderer.js"></script>
+<script src="js/exportManager.js"></script>
+<script src="js/fileHandler.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
