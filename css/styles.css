@@ -145,6 +145,8 @@ body{
 }
 .section-card .section-body{ padding: 1.1rem; }
 .section-badge{ font-size:.72rem; }
+.section-description{ padding-bottom:.6rem !important; }
+.section-description + .section-body{ padding-top:.9rem; }
 
 /* ---------- Tabelas ---------- */
 .ti-table-toolbar{ display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-bottom:.85rem; }

@@ -130,7 +130,10 @@
         return;
       }
       els.tbody.innerHTML = pageRows.map((row) => `
-        <tr>${state.columns.map((c) => `<td class="${c.numeric ? "text-end" : ""}">${Utils.escapeHtml(row[c.key] ?? "")}</td>`).join("")}</tr>
+        <tr>${state.columns.map((c) => {
+          const extra = typeof c.cellClass === "function" ? c.cellClass(row) : "";
+          return `<td class="${c.numeric ? "text-end" : ""} ${extra || ""}">${Utils.escapeHtml(row[c.key] ?? "")}</td>`;
+        }).join("")}</tr>
       `).join("");
     }
 

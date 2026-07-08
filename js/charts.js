@@ -55,7 +55,7 @@
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { display: isPie, position: "bottom", labels: { color: textColor(), boxWidth: 12, font: { size: 11 } } },
+          legend: { display: isPie || chartSpec.datasets.length > 1, position: "bottom", labels: { color: textColor(), boxWidth: 12, font: { size: 11 } } },
           tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 } },
         },
         scales: isPie ? {} : {

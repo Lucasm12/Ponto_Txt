@@ -45,6 +45,19 @@
     E: "Registro excluído",
   };
 
+  const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  // Tolerância para não marcar "atraso" por poucos minutos de variação natural.
+  const TOLERANCIA_ATRASO_MIN = 10;
+
+  function monthKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
+  function monthLabel(date) { return `${MESES[date.getMonth()]}/${date.getFullYear()}`; }
+  function timeToMinutes(hhmm) {
+    if (!hhmm || hhmm === "-") return null;
+    const [h, m] = hhmm.split(":").map(Number);
+    return h * 60 + m;
+  }
+  function isWeekday(date) { const wd = date.getDay(); return wd !== 0 && wd !== 6; }
+
   // ------------------------------------------------------------------
   // Detecção
   // ------------------------------------------------------------------
@@ -279,6 +292,79 @@
     const typeDistLabels = Object.keys(typeCounts).sort();
     const typeDist = typeDistLabels.map((t) => ({ tipo: `Tipo ${t} — ${TYPE_LABELS[t] || "desconhecido"}`, qtd: typeCounts[t] }));
 
+    // ---------------- Relatório mensal (faltas e atrasos estimados) ----------------
+    // O AFD não informa a escala oficial de horário de cada trabalhador, então os
+    // indicadores abaixo são estimativas calculadas a partir do próprio histórico:
+    //  - "Atraso" = a 1ª marcação do dia ocorreu depois do horário habitual de
+    //    entrada do trabalhador (mediana das 1ªs marcações dele) + tolerância.
+    //  - "Falta" = dia útil (seg. a sex.) sem nenhuma marcação, dentro do período
+    //    em que o trabalhador teve registros no arquivo.
+    const byWorkerDay = new Map();
+    for (const p of punches) {
+      if (p.trabalhadorId === "-" || !p.data) continue;
+      const key = `${p.trabalhadorId}|${p.dataStr}`;
+      if (!byWorkerDay.has(key)) byWorkerDay.set(key, { workerId: p.trabalhadorId, date: p.data, times: [] });
+      const mins = timeToMinutes(p.hora);
+      if (mins != null) byWorkerDay.get(key).times.push(mins);
+    }
+    const workerDays = Array.from(byWorkerDay.values()).map((d) => ({ ...d, firstPunch: d.times.length ? Math.min(...d.times) : null }));
+
+    const habitualEntry = new Map();
+    for (const [workerId, days] of Utils.groupBy(workerDays.filter((d) => d.firstPunch != null), (d) => d.workerId).entries()) {
+      const sorted = days.map((d) => d.firstPunch).sort((a, b) => a - b);
+      habitualEntry.set(workerId, sorted[Math.floor(sorted.length / 2)]);
+    }
+    for (const d of workerDays) {
+      const habitual = habitualEntry.get(d.workerId);
+      d.atraso = d.firstPunch != null && habitual != null && d.firstPunch > habitual + TOLERANCIA_ATRASO_MIN;
+    }
+
+    const monthlyMap = new Map();
+    for (const d of workerDays) {
+      const mk = monthKey(d.date);
+      const key = `${d.workerId}|${mk}`;
+      if (!monthlyMap.has(key)) {
+        monthlyMap.set(key, { workerId: d.workerId, mesKey: mk, mesLabel: monthLabel(d.date), diasSet: new Set(), atrasos: 0, marcacoes: 0 });
+      }
+      const rec = monthlyMap.get(key);
+      rec.diasSet.add(d.date.toDateString());
+      if (d.atraso) rec.atrasos++;
+    }
+    for (const p of punches) {
+      if (p.trabalhadorId === "-" || !p.data) continue;
+      const key = `${p.trabalhadorId}|${monthKey(p.data)}`;
+      if (monthlyMap.has(key)) monthlyMap.get(key).marcacoes++;
+    }
+    for (const rec of monthlyMap.values()) {
+      const worker = workerMap.get(rec.workerId);
+      const [y, m] = rec.mesKey.split("-").map(Number);
+      const monthStart = new Date(y, m - 1, 1);
+      const monthEnd = new Date(y, m, 0);
+      const rangeStart = worker && worker.primeira && worker.primeira > monthStart ? worker.primeira : monthStart;
+      const rangeEnd = worker && worker.ultima && worker.ultima < monthEnd ? worker.ultima : monthEnd;
+      let faltas = 0;
+      for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
+        if (isWeekday(d) && !rec.diasSet.has(d.toDateString())) faltas++;
+      }
+      rec.faltas = faltas;
+    }
+
+    const monthlyRows = Array.from(monthlyMap.values())
+      .map((rec) => ({
+        mes: rec.mesLabel, mesKey: rec.mesKey,
+        trabalhadorId: rec.workerId, nome: (workerMap.get(rec.workerId) || {}).nome || "(não informado)",
+        diasComMarcacao: rec.diasSet.size, faltas: rec.faltas || 0, atrasos: rec.atrasos, marcacoes: rec.marcacoes,
+      }))
+      .sort((a, b) => (a.mesKey === b.mesKey ? a.nome.localeCompare(b.nome, "pt-BR") : a.mesKey.localeCompare(b.mesKey)));
+
+    const totalFaltas = Utils.sum(monthlyRows.map((r) => r.faltas));
+    const totalAtrasos = Utils.sum(monthlyRows.map((r) => r.atrasos));
+
+    const monthlyTotalsMap = Utils.groupBy(monthlyRows, (r) => r.mes);
+    const monthlyTotals = Array.from(monthlyTotalsMap.entries())
+      .map(([mes, rows]) => ({ mes, mesKey: rows[0].mesKey, faltas: Utils.sum(rows.map((r) => r.faltas)), atrasos: Utils.sum(rows.map((r) => r.atrasos)) }))
+      .sort((a, b) => a.mesKey.localeCompare(b.mesKey));
+
     // ---------------- Seções do relatório ----------------
     const sections = [];
 
@@ -307,6 +393,23 @@
       rows: workers,
       numericStats: true,
     });
+
+    if (monthlyRows.length) {
+      sections.push({
+        id: "monthly", title: "Relatório mensal de frequência (faltas e atrasos estimados)", icon: "bi-calendar-week",
+        type: "table",
+        description: "Estimativa calculada a partir do próprio arquivo (o AFD não informa a escala oficial de horário): falta = dia útil sem nenhuma marcação; atraso = 1ª marcação do dia além do horário habitual de entrada do trabalhador.",
+        columns: [
+          { key: "mes", label: "Mês" }, { key: "nome", label: "Funcionário" },
+          { key: "diasComMarcacao", label: "Dias c/ marcação", numeric: true },
+          { key: "faltas", label: "Faltas (estim.)", numeric: true, cellClass: (row) => (row.faltas > 0 ? "text-danger fw-bold" : "") },
+          { key: "atrasos", label: "Atrasos (estim.)", numeric: true, cellClass: (row) => (row.atrasos > 0 ? "text-warning-emphasis fw-bold" : "") },
+          { key: "marcacoes", label: "Marcações", numeric: true },
+        ],
+        rows: monthlyRows,
+        numericStats: true,
+      });
+    }
 
     sections.push({
       id: "punches", title: "Marcações de ponto", icon: "bi-fingerprint",
@@ -373,6 +476,8 @@
         value: dateRange ? `${Utils.formatDateShort(dateRange.min)} — ${Utils.formatDateShort(dateRange.max)}` : "-",
         icon: "bi-calendar-range", color: "secondary",
       },
+      { label: "Faltas estimadas", value: Utils.formatNumber(totalFaltas), icon: "bi-calendar-x", color: "danger" },
+      { label: "Atrasos estimados", value: Utils.formatNumber(totalAtrasos), icon: "bi-alarm", color: "warning" },
     ];
 
     // ---------------- Gráficos ----------------
@@ -395,6 +500,16 @@
         id: "chartEvents", title: "Distribuição por código de evento", type: "pie",
         labels: eventDist.map((e) => `${e.evento} (${EVENT_LEGEND[e.evento] || "?"})`),
         datasets: [{ label: "Quantidade", data: eventDist.map((e) => e.qtd) }],
+      });
+    }
+    if (monthlyTotals.length) {
+      charts.push({
+        id: "chartMonthly", title: "Faltas e atrasos por mês (estimativa)", type: "bar",
+        labels: monthlyTotals.map((m) => m.mes),
+        datasets: [
+          { label: "Faltas", data: monthlyTotals.map((m) => m.faltas) },
+          { label: "Atrasos", data: monthlyTotals.map((m) => m.atrasos) },
+        ],
       });
     }
 

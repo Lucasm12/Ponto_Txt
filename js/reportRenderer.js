@@ -77,6 +77,7 @@
       const { body, toolbar } = SectionCard.mountSectionCard(sectionsWrap, {
         id: `sec-${section.id}`, title: section.title, icon: section.icon,
         badge: section.type === "table" ? `${Utils.formatNumber(section.rows.length)} registro(s)` : null,
+        description: section.description,
       });
 
       if (section.type === "table") {
