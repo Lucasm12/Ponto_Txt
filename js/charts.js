@@ -18,12 +18,8 @@
     instances.clear();
   }
 
-  function isDark() {
-    return document.documentElement.getAttribute("data-bs-theme") === "dark";
-  }
-
-  function gridColor() { return isDark() ? "rgba(255,255,255,.08)" : "rgba(0,0,0,.06)"; }
-  function textColor() { return isDark() ? "#cbd5e1" : "#334155"; }
+  const GRID_COLOR = "rgba(0,0,0,.06)";
+  const TEXT_COLOR = "#334155";
 
   function buildDataset(ds, index, type) {
     if (type === "doughnut" || type === "pie") {
@@ -55,12 +51,12 @@
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { display: isPie || chartSpec.datasets.length > 1, position: "bottom", labels: { color: textColor(), boxWidth: 12, font: { size: 11 } } },
+          legend: { display: isPie || chartSpec.datasets.length > 1, position: "bottom", labels: { color: TEXT_COLOR, boxWidth: 12, font: { size: 11 } } },
           tooltip: { titleFont: { size: 12 }, bodyFont: { size: 12 } },
         },
         scales: isPie ? {} : {
-          x: { ticks: { color: textColor(), font: { size: 10 } }, grid: { color: gridColor() } },
-          y: { ticks: { color: textColor(), font: { size: 10 } }, grid: { color: gridColor() }, beginAtZero: true },
+          x: { ticks: { color: TEXT_COLOR, font: { size: 10 } }, grid: { color: GRID_COLOR } },
+          y: { ticks: { color: TEXT_COLOR, font: { size: 10 } }, grid: { color: GRID_COLOR }, beginAtZero: true },
         },
       },
     });

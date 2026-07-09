@@ -25,6 +25,7 @@
             <p class="mb-0 mt-2 opacity-90 small">${Utils.escapeHtml(doc.formatDescription || "")}</p>
           </div>
           <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-light btn-sm" id="btnNewFileReport"><i class="bi bi-file-earmark-plus me-1"></i>Novo arquivo</button>
             <button class="btn btn-light btn-sm" id="btnPrintReport"><i class="bi bi-printer me-1"></i>Imprimir / PDF</button>
           </div>
         </div>
@@ -53,8 +54,9 @@
    * @param {HTMLElement} container
    * @param {object} doc ParsedDocument retornado por um parser
    * @param {{fileName,fileSize,lineCount,importedAt}} fileMeta
+   * @param {function} [onNewFile] chamado quando o usuário pede para importar outro arquivo
    */
-  function render(container, doc, fileMeta) {
+  function render(container, doc, fileMeta, onNewFile) {
     ChartsManager.destroyAll();
     container.innerHTML = "";
 
@@ -72,7 +74,7 @@
     if (doc.attendance) {
       const wrap = document.createElement("div");
       container.appendChild(wrap);
-      AttendanceView.render(wrap, doc, fileMeta);
+      AttendanceView.render(wrap, doc, fileMeta, onNewFile);
       return;
     }
 
@@ -105,6 +107,7 @@
     (doc.charts || []).forEach((c) => ChartsManager.render(c.id, c));
 
     document.getElementById("btnPrintReport")?.addEventListener("click", () => ExportManager.printReport());
+    document.getElementById("btnNewFileReport")?.addEventListener("click", () => onNewFile && onNewFile());
   }
 
   global.ReportRenderer = { render };

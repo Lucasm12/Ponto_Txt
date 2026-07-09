@@ -119,7 +119,7 @@
   // ------------------------------------------------------------------
   // Renderização
   // ------------------------------------------------------------------
-  function render(container, doc, fileMeta) {
+  function render(container, doc, fileMeta, onNewFile) {
     const att = doc.attendance;
     const companyLabel = att.companyName + (att.companyDoc ? ` - ${att.companyDoc}` : "");
     const state = { monthKey: att.months.length ? att.months[att.months.length - 1].key : null, search: "", employeeId: null };
@@ -140,6 +140,7 @@
               <span class="meta-pill"><i class="bi bi-people-fill"></i>${Utils.formatNumber(att.employees.length)} funcionário(s)</span>
             </div>
           </div>
+          <button class="btn btn-light btn-sm" id="attNewFileBtn"><i class="bi bi-file-earmark-plus me-1"></i>Novo arquivo</button>
         </div>
       </div>
 
@@ -178,6 +179,8 @@
     `;
     container.innerHTML = "";
     container.appendChild(root);
+
+    root.querySelector("#attNewFileBtn")?.addEventListener("click", () => onNewFile && onNewFile());
 
     const els = {
       monthSelect: root.querySelector("#attMonthSelect"),
