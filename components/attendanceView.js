@@ -168,7 +168,7 @@
           </div>
           <div class="section-body p-0">
             <table class="table table-hover align-middle mb-0">
-              <thead><tr><th>Funcionário</th><th>Matrícula/PIS</th><th class="text-end">Dias com marcação</th><th class="text-end"></th></tr></thead>
+              <thead><tr><th>Funcionário</th><th class="text-end">Dias com marcação</th><th class="text-end"></th></tr></thead>
               <tbody id="attListBody"></tbody>
             </table>
           </div>
@@ -218,14 +218,13 @@
 
       els.listCount.textContent = `${Utils.formatNumber(rows.length)} funcionário(s)`;
       if (!rows.length) {
-        els.listBody.innerHTML = `<tr><td colspan="4" class="text-center text-secondary py-4">
+        els.listBody.innerHTML = `<tr><td colspan="3" class="text-center text-secondary py-4">
           <i class="bi bi-inbox fs-4 d-block mb-1"></i>Nenhum funcionário com marcação neste mês.</td></tr>`;
         return;
       }
       els.listBody.innerHTML = rows.map((e) => `
         <tr class="att-row" data-id="${Utils.escapeHtml(e.id)}" style="cursor:pointer;">
           <td>${Utils.escapeHtml(e.nome)}</td>
-          <td>${Utils.escapeHtml(e.id)}</td>
           <td class="text-end">${e.dias}</td>
           <td class="text-end"><i class="bi bi-chevron-right text-secondary"></i></td>
         </tr>`).join("");

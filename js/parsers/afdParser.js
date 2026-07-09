@@ -10,8 +10,9 @@
  *   - Tipos relevantes para este relatório:
  *       1/2 = Cabeçalho do arquivo / identificação de empresa (usado só para
  *             exibir o nome da empresa no relatório)
- *       3/5 = Marcação de ponto (compacta/completa): data, hora e
- *             identificador (e nome, quando presente) do trabalhador
+ *       3   = Marcação de ponto: data, hora e PIS do trabalhador (sem nome)
+ *       5   = Cadastro/alteração de funcionário: data, hora, PIS e nome —
+ *             não é uma batida de ponto, só a fonte do nome de cada PIS
  *   Demais tipos (4, 6, 9) não são necessários para este relatório e são
  *   ignorados na leitura.
  *
@@ -76,16 +77,29 @@
     return { date, time, index: 0, length: 12 };
   }
 
-  /** A partir do restante da linha (após data/hora), tenta achar identificador+nome do trabalhador. */
-  function extractIdName(rest) {
-    // Ex.: "I013160471194ALEX V N TEOTONIO                  0000010022543886252"
-    const m = rest.match(/^([A-Z])?(\d{9,14})([\s\S]*)$/);
-    if (!m) return { workerId: null, name: null };
+  /**
+   * Campos fixos após DATA+HORA, conforme layout da Portaria 671:
+   *   Tipo 3 (marcação):            PIS(12) + CRC(4)
+   *   Tipo 5 (cadastro/alteração):  TIPO_ALTERACAO(1) + PIS(12) + NOME(52) + campos finais(19, ignorados)
+   * O PIS tem largura fixa de 12 dígitos — usar regex "gulosa" de tamanho
+   * variável aqui faz o parser engolir dígitos do CRC (hexadecimal, tipo 3)
+   * para dentro do PIS sempre que o CRC começa com 0-9, corrompendo o
+   * identificador do trabalhador.
+   * O NOME também é largura fixa (52 chars, preenchido com espaços à
+   * direita) — confirmado batendo o padding de várias linhas reais do AFD.
+   * Pegar "o resto da linha" faz o parser incluir os campos finais (que vêm
+   * colados após o padding) dentro do nome exibido.
+   */
+  function extractPis3(after) {
+    const pis = after.slice(0, 12);
+    return /^\d{12}$/.test(pis) ? pis : null;
+  }
 
-    const workerId = m[2];
-    const tailRaw = m[3] || "";
-    const nameMatch = tailRaw.match(/^\s*([A-ZÀ-Ü0-9.'&\-\/ ]{3,80}?)\s{2,}/);
-    return { workerId, name: nameMatch ? nameMatch[1].trim() : null };
+  function extractIdName5(after) {
+    const pis = after.slice(1, 13);
+    if (!/^\d{12}$/.test(pis)) return { workerId: null, name: null };
+    const name = after.slice(13, 13 + 52).trim() || null;
+    return { workerId: pis, name };
   }
 
   /**
@@ -116,7 +130,8 @@
     const rawLines = content.split(/\r\n|\n|\r/);
     const lines = rawLines.filter((l) => l.length > 0);
 
-    const punches = [];   // { workerId, nome, data (Date), hora }
+    const punches = [];   // { workerId, data (Date), hora } — apenas marcações reais (tipo 3)
+    const employeeNames = new Map(); // workerId (PIS) -> nome, alimentado pelos cadastros (tipo 5)
     let companyName = null;
     let companyDoc = null;
 
@@ -125,12 +140,22 @@
       const type = line.slice(9, 10);
       const rest = line.slice(10);
 
-      if (type === "3" || type === "5") {
+      if (type === "3") {
+        const dt = extractDateTime(rest);
+        if (!dt || !dt.time) continue;
+        const workerId = extractPis3(rest.slice(dt.index + dt.length));
+        if (!workerId) continue;
+        punches.push({ workerId, data: dt.date, hora: dt.time });
+        continue;
+      }
+
+      if (type === "5") {
+        // Cadastro/alteração de funcionário — não é uma batida de ponto,
+        // então não entra em `punches`; só fornece o nome associado ao PIS.
         const dt = extractDateTime(rest);
         if (!dt) continue;
-        const { workerId, name } = extractIdName(rest.slice(dt.index + dt.length));
-        if (!workerId || !dt.time) continue;
-        punches.push({ workerId, nome: name, data: dt.date, hora: dt.time });
+        const { workerId, name } = extractIdName5(rest.slice(dt.index + dt.length));
+        if (workerId && name) employeeNames.set(workerId, name);
         continue;
       }
 
@@ -144,18 +169,14 @@
       }
     }
 
-    // ---------------- Funcionários (nome mais recente por identificador) ----------------
-    const employeeMap = new Map();
-    for (const p of punches) {
-      if (!employeeMap.has(p.workerId)) employeeMap.set(p.workerId, { id: p.workerId, nome: p.nome || null });
-      if (p.nome) employeeMap.get(p.workerId).nome = p.nome;
-    }
-    // Identificadores sem nenhum nome identificado em nenhuma marcação (comuns em
-    // registros compactos/REP-P) são ignorados: sem nome, não há como o usuário
+    // ---------------- Funcionários (nome vem dos registros de cadastro, tipo 5) ----------------
+    // PIS com marcações (tipo 3) mas sem nenhum cadastro correspondente (comum em
+    // arquivos parciais) são ignorados: sem nome, não há como o usuário
     // reconhecer o funcionário na lista.
-    const employees = Array.from(employeeMap.values())
-      .filter((e) => e.nome)
-      .map((e) => ({ id: e.id, nome: e.nome }))
+    const workersWithPunches = new Set(punches.map((p) => p.workerId));
+    const employees = Array.from(employeeNames.entries())
+      .filter(([workerId]) => workersWithPunches.has(workerId))
+      .map(([workerId, nome]) => ({ id: workerId, nome }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
     // ---------------- Meses disponíveis ----------------
