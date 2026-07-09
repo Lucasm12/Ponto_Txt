@@ -37,6 +37,8 @@
     return readRaw().find((i) => i.id === id) || null;
   }
 
+  const MAX_ATTENDANCE_PUNCHES = 50000;
+
   /** Reduz um documento grande a uma versão amostrada, mantendo stats/gráficos completos. */
   function summarizeDocument(doc) {
     const clone = JSON.parse(JSON.stringify(doc));
@@ -50,6 +52,9 @@
       }
       return s;
     });
+    if (clone.attendance && Array.isArray(clone.attendance.punches) && clone.attendance.punches.length > MAX_ATTENDANCE_PUNCHES) {
+      clone.attendance.punches = clone.attendance.punches.slice(0, MAX_ATTENDANCE_PUNCHES);
+    }
     return clone;
   }
 

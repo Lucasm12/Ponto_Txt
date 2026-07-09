@@ -6,57 +6,27 @@
  * Estrutura geral (identificada a partir do próprio conteúdo do arquivo):
  *   - Cada linha começa com um NSR (Número Sequencial de Registro) de 9 dígitos,
  *     seguido de 1 dígito que identifica o TIPO do registro.
- *   - A última linha (tipo 9, com NSR "999999999") é o rodapé/trailer com totais.
- *   - Tipos observados neste arquivo:
- *       1 = Cabeçalho do arquivo (dados do empregador/REP)
- *       2 = Identificação de empresa/estabelecimento (quando o REP é usado por
- *           mais de um estabelecimento/empregador ao longo do tempo)
- *       3 = Marcação de ponto em formato compacto (REP antigo/REP-P): data,
- *           hora e identificador do trabalhador, sem nome
- *       4 = Ajuste de data/hora do relógio do equipamento
- *       5 = Marcação de ponto em formato completo (REP-C): data, hora, tipo
- *           de evento, identificador e nome do trabalhador
- *       6 = Alteração de dados (variações do cadastro/marcações)
- *       9 = Rodapé com totais do arquivo
+ *   - A última linha (tipo 9, com NSR "999999999") é o rodapé/trailer.
+ *   - Tipos relevantes para este relatório:
+ *       1/2 = Cabeçalho do arquivo / identificação de empresa (usado só para
+ *             exibir o nome da empresa no relatório)
+ *       3/5 = Marcação de ponto (compacta/completa): data, hora e
+ *             identificador (e nome, quando presente) do trabalhador
+ *   Demais tipos (4, 6, 9) não são necessários para este relatório e são
+ *   ignorados na leitura.
  *
- * Como os campos internos de cada tipo podem variar de fabricante para
- * fabricante, a extração é feita por reconhecimento de padrões (datas,
- * horas, blocos numéricos e blocos de texto), e não por posições de byte
- * fixas "às cegas" — isso torna o parser resiliente a pequenas variações,
- * e qualquer trecho que não seja reconhecido cai automaticamente na seção
- * de texto bruto, sem quebrar o relatório.
+ * Este parser não gera um dashboard genérico de tabelas/gráficos — em vez
+ * disso, expõe `attendance` (funcionários, meses disponíveis e as marcações
+ * já limpas) para que o AttendanceView monte, sob demanda, um "Espelho de
+ * Ponto" mensal por funcionário, no estilo dos relatórios de ponto comuns.
  */
 (function (global) {
   "use strict";
 
-  const TYPE_LABELS = {
-    "1": "Cabeçalho do arquivo",
-    "2": "Identificação de empresa",
-    "3": "Marcação de ponto (compacta)",
-    "4": "Ajuste de relógio",
-    "5": "Marcação de ponto (completa)",
-    "6": "Alteração de registro",
-    "9": "Rodapé (totais)",
-  };
-
-  const EVENT_LEGEND = {
-    I: "Registro original (inclusão)",
-    A: "Registro ajustado/alterado",
-    E: "Registro excluído",
-  };
-
   const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-  // Tolerância para não marcar "atraso" por poucos minutos de variação natural.
-  const TOLERANCIA_ATRASO_MIN = 10;
 
   function monthKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
   function monthLabel(date) { return `${MESES[date.getMonth()]}/${date.getFullYear()}`; }
-  function timeToMinutes(hhmm) {
-    if (!hhmm || hhmm === "-") return null;
-    const [h, m] = hhmm.split(":").map(Number);
-    return h * 60 + m;
-  }
-  function isWeekday(date) { const wd = date.getDay(); return wd !== 0 && wd !== 6; }
 
   // ------------------------------------------------------------------
   // Detecção
@@ -95,8 +65,7 @@
    * conforme o layout do AFD). Propositalmente NÃO varre o restante da linha:
    * em arquivos reais, buscar o padrão em qualquer posição faz o parser
    * "achar" datas falsas dentro de blocos numéricos como PIS/CPF e o
-   * preenchimento após o nome, corrompendo o intervalo de datas e o
-   * alinhamento da extração de identificador/nome que vem em seguida.
+   * preenchimento após o nome, corrompendo os dados extraídos.
    */
   function extractDateTime(str) {
     const m = /^(\d{8})(\d{4})/.exec(str);
@@ -104,46 +73,40 @@
     const date = Utils.parseDDMMYYYY(m[1]);
     if (!date) return null;
     const time = Utils.parseHHMM(m[2]);
-    return { date, dateStr: m[1], time, index: 0, length: 12 };
+    return { date, time, index: 0, length: 12 };
   }
 
-  /** A partir do restante da linha (após data/hora), tenta achar evento+id+nome. */
-  function extractEventIdName(rest) {
+  /** A partir do restante da linha (após data/hora), tenta achar identificador+nome do trabalhador. */
+  function extractIdName(rest) {
     // Ex.: "I013160471194ALEX V N TEOTONIO                  0000010022543886252"
     const m = rest.match(/^([A-Z])?(\d{9,14})([\s\S]*)$/);
-    if (!m) return { eventChar: null, workerId: null, name: null, tail: rest.trim() };
+    if (!m) return { workerId: null, name: null };
 
-    const eventChar = m[1] || null;
     const workerId = m[2];
-    let tailRaw = m[3] || "";
-
-    // Nome = trecho de texto em maiúsculas antes de 2+ espaços seguidos (padding fixo).
-    const nameMatch = tailRaw.match(/^\s*([A-ZÀ-Ü0-9.'&\-\/ ]{3,80}?)\s{2,}([\s\S]*)$/);
-    let name = null, tail = tailRaw.trim();
-    if (nameMatch) {
-      name = nameMatch[1].trim();
-      tail = nameMatch[2].trim();
-    }
-    return { eventChar, workerId, name, tail };
+    const tailRaw = m[3] || "";
+    const nameMatch = tailRaw.match(/^\s*([A-ZÀ-Ü0-9.'&\-\/ ]{3,80}?)\s{2,}/);
+    return { workerId, name: nameMatch ? nameMatch[1].trim() : null };
   }
 
-  /** Extrai blocos de texto "tipo nome/endereço" (maiúsculas) de uma string. */
-  function extractTextBlocks(str) {
-    const blocks = [];
-    const re = /[A-ZÀ-Ü&][A-ZÀ-Ü0-9°º&.,'\-\/ ]{5,}/g;
-    let m;
-    while ((m = re.exec(str)) !== null) {
-      const clean = m[0].replace(/\s{2,}/g, " ").trim();
-      if (clean.length >= 5) blocks.push(clean);
+  /**
+   * Extrai o nome da empresa de uma string de campos com padding fixo.
+   * Divide por 2+ espaços (o separador entre campos de largura fixa no AFD)
+   * e usa o primeiro trecho que pareça um nome — evita "colar" o nome com o
+   * endereço, que normalmente vem no campo seguinte.
+   */
+  function extractCompanyName(str) {
+    const parts = str.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const m = part.match(/[A-ZÀ-Ü&][A-ZÀ-Ü0-9°º&.,'\-\/ ]{4,}/);
+      if (m) return m[0].trim();
     }
-    return blocks;
+    return null;
   }
 
-  function parseLine(line, lineNumber) {
-    const nsr = line.slice(0, 9);
-    const type = line.slice(9, 10);
-    const rest = line.slice(10);
-    return { lineNumber, nsr, type, rest, raw: line };
+  function formatCnpjCpf(digits) {
+    if (digits.length === 14) return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+    return digits;
   }
 
   // ------------------------------------------------------------------
@@ -153,373 +116,73 @@
     const rawLines = content.split(/\r\n|\n|\r/);
     const lines = rawLines.filter((l) => l.length > 0);
 
-    const punches = [];       // tipos 3 e 5 (marcações de ponto)
-    const companies = [];     // tipos 1 e 2
-    const clockAdjusts = [];  // tipo 4
-    const otherRecords = [];  // tipo 6
-    const unparsed = [];      // linhas que não bateram com o padrão esperado
-    const typeCounts = {};    // contagem por tipo (1..9)
-    let trailerRaw = null;
+    const punches = [];   // { workerId, nome, data (Date), hora }
+    let companyName = null;
+    let companyDoc = null;
 
-    let ln = 0;
     for (const line of lines) {
-      ln++;
-      if (!/^\d{9}\d/.test(line)) {
-        unparsed.push({ lineNumber: ln, raw: line, reason: "Linha fora do padrão NSR+Tipo" });
-        continue;
-      }
-      const rec = parseLine(line, ln);
-      typeCounts[rec.type] = (typeCounts[rec.type] || 0) + 1;
+      if (!/^\d{9}\d/.test(line)) continue;
+      const type = line.slice(9, 10);
+      const rest = line.slice(10);
 
-      if (rec.nsr === "999999999" || rec.type === "9") {
-        trailerRaw = rec.raw;
-        continue;
-      }
-
-      if (rec.type === "3" || rec.type === "5") {
-        const dt = extractDateTime(rec.rest);
-        if (!dt) { unparsed.push({ lineNumber: ln, raw: line, reason: "Data/hora não reconhecida" }); continue; }
-        const afterDt = rec.rest.slice(dt.index + dt.length);
-        const { eventChar, workerId, name } = extractEventIdName(afterDt);
-        punches.push({
-          lineNumber: ln,
-          nsr: rec.nsr,
-          formato: rec.type === "5" ? "Completa (REP-C)" : "Compacta (REP-P)",
-          data: dt.date,
-          dataStr: Utils.formatDateShort(dt.date),
-          hora: dt.time || "-",
-          evento: eventChar || "-",
-          eventoDescricao: eventChar ? (EVENT_LEGEND[eventChar] || eventChar) : "-",
-          trabalhadorId: workerId || "-",
-          trabalhadorNome: name || "(não informado)",
-          raw: line,
-        });
+      if (type === "3" || type === "5") {
+        const dt = extractDateTime(rest);
+        if (!dt) continue;
+        const { workerId, name } = extractIdName(rest.slice(dt.index + dt.length));
+        if (!workerId || !dt.time) continue;
+        punches.push({ workerId, nome: name, data: dt.date, hora: dt.time });
         continue;
       }
 
-      if (rec.type === "1" || rec.type === "2") {
-        const dt = extractDateTime(rec.rest);
-        const searchArea = dt ? rec.rest.slice(dt.index + dt.length) : rec.rest;
-        const blocks = extractTextBlocks(searchArea.length > 5 ? searchArea : rec.rest);
-        const docMatch = rec.rest.match(/\d{11,14}/);
-        companies.push({
-          lineNumber: ln,
-          nsr: rec.nsr,
-          tipo: rec.type === "1" ? "Cabeçalho" : "Identificação de empresa",
-          data: dt ? dt.date : null,
-          dataStr: dt ? Utils.formatDateShort(dt.date) : "-",
-          hora: dt ? dt.time || "-" : "-",
-          documento: docMatch ? docMatch[0] : "-",
-          nome: blocks[0] || "(não identificado)",
-          endereco: blocks[1] || "-",
-          raw: line,
-        });
-        continue;
+      if ((type === "1" || type === "2") && !companyName) {
+        const dt = extractDateTime(rest);
+        const searchArea = dt ? rest.slice(dt.index + dt.length) : rest;
+        const found = extractCompanyName(searchArea.length > 5 ? searchArea : rest);
+        if (found) companyName = found;
+        const docMatch = searchArea.match(/\d{11,14}/);
+        if (docMatch) companyDoc = formatCnpjCpf(docMatch[0]);
       }
-
-      if (rec.type === "4") {
-        // Duas datas/horas adjacentes no início do registro: nova e anterior
-        // (campos fixos — não variam de posição, então não variamos a busca).
-        const found = [];
-        const novo = extractDateTime(rec.rest);
-        if (novo) {
-          found.push({ date: novo.date, time: novo.time });
-          const anterior = extractDateTime(rec.rest.slice(novo.index + novo.length));
-          if (anterior) found.push({ date: anterior.date, time: anterior.time });
-        }
-        if (found.length === 0) { unparsed.push({ lineNumber: ln, raw: line, reason: "Ajuste sem datas reconhecíveis" }); continue; }
-        clockAdjusts.push({
-          lineNumber: ln,
-          nsr: rec.nsr,
-          dataNova: Utils.formatDateShort(found[0].date),
-          horaNova: found[0].time || "-",
-          dataAnterior: found[1] ? Utils.formatDateShort(found[1].date) : "-",
-          horaAnterior: found[1] ? found[1].time || "-" : "-",
-          raw: line,
-        });
-        continue;
-      }
-
-      if (rec.type === "6") {
-        const dt = extractDateTime(rec.rest);
-        if (dt) {
-          const afterDt = rec.rest.slice(dt.index + dt.length);
-          const { eventChar, workerId, name } = extractEventIdName(afterDt);
-          otherRecords.push({
-            lineNumber: ln, nsr: rec.nsr,
-            data: Utils.formatDateShort(dt.date), hora: dt.time || "-",
-            evento: eventChar || "-", trabalhadorId: workerId || "-",
-            trabalhadorNome: name || "(não informado)", raw: line,
-          });
-        } else {
-          otherRecords.push({ lineNumber: ln, nsr: rec.nsr, data: "-", hora: "-", evento: "-", trabalhadorId: "-", trabalhadorNome: "-", raw: line });
-        }
-        continue;
-      }
-
-      // Tipo reconhecido mas sem regra específica — guarda em "outros".
-      otherRecords.push({ lineNumber: ln, nsr: rec.nsr, data: "-", hora: "-", evento: "-", trabalhadorId: "-", trabalhadorNome: `(tipo ${rec.type})`, raw: line });
     }
 
-    // ---------------- Agregações ----------------
-    const workerMap = new Map();
+    // ---------------- Funcionários (nome mais recente por identificador) ----------------
+    const employeeMap = new Map();
     for (const p of punches) {
-      if (p.trabalhadorId === "-") continue;
-      if (!workerMap.has(p.trabalhadorId)) {
-        workerMap.set(p.trabalhadorId, { id: p.trabalhadorId, nome: p.trabalhadorNome, marcacoes: 0, primeira: p.data, ultima: p.data });
-      }
-      const w = workerMap.get(p.trabalhadorId);
-      w.marcacoes++;
-      if (p.trabalhadorNome && p.trabalhadorNome !== "(não informado)") w.nome = p.trabalhadorNome;
-      if (p.data && (!w.primeira || p.data < w.primeira)) w.primeira = p.data;
-      if (p.data && (!w.ultima || p.data > w.ultima)) w.ultima = p.data;
+      if (!employeeMap.has(p.workerId)) employeeMap.set(p.workerId, { id: p.workerId, nome: p.nome || null });
+      if (p.nome) employeeMap.get(p.workerId).nome = p.nome;
     }
-    const workers = Array.from(workerMap.values()).map((w) => ({
-      ...w, primeiraStr: w.primeira ? Utils.formatDateShort(w.primeira) : "-", ultimaStr: w.ultima ? Utils.formatDateShort(w.ultima) : "-",
-    })).sort((a, b) => b.marcacoes - a.marcacoes);
+    // Identificadores sem nenhum nome identificado em nenhuma marcação (comuns em
+    // registros compactos/REP-P) são ignorados: sem nome, não há como o usuário
+    // reconhecer o funcionário na lista.
+    const employees = Array.from(employeeMap.values())
+      .filter((e) => e.nome)
+      .map((e) => ({ id: e.id, nome: e.nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
-    const validDates = punches.map((p) => p.data).filter(Boolean).sort((a, b) => a - b);
-    const dateRange = validDates.length ? { min: validDates[0], max: validDates[validDates.length - 1] } : null;
-
-    const perDayMap = Utils.groupBy(punches.filter((p) => p.data), (p) => p.dataStr);
-    const perDay = Array.from(perDayMap.entries())
-      .map(([data, arr]) => ({ data, qtd: arr.length, _sortKey: arr[0].data }))
-      .sort((a, b) => a._sortKey - b._sortKey);
-
-    const eventMap = Utils.groupBy(punches.filter((p) => p.evento !== "-"), (p) => p.evento);
-    const eventDist = Array.from(eventMap.entries()).map(([ev, arr]) => ({ evento: ev, qtd: arr.length }));
-
-    const typeDistLabels = Object.keys(typeCounts).sort();
-    const typeDist = typeDistLabels.map((t) => ({ tipo: `Tipo ${t} — ${TYPE_LABELS[t] || "desconhecido"}`, qtd: typeCounts[t] }));
-
-    // ---------------- Relatório mensal (faltas e atrasos estimados) ----------------
-    // O AFD não informa a escala oficial de horário de cada trabalhador, então os
-    // indicadores abaixo são estimativas calculadas a partir do próprio histórico:
-    //  - "Atraso" = a 1ª marcação do dia ocorreu depois do horário habitual de
-    //    entrada do trabalhador (mediana das 1ªs marcações dele) + tolerância.
-    //  - "Falta" = dia útil (seg. a sex.) sem nenhuma marcação, dentro do período
-    //    em que o trabalhador teve registros no arquivo.
-    const byWorkerDay = new Map();
+    // ---------------- Meses disponíveis ----------------
+    const monthsMap = new Map();
     for (const p of punches) {
-      if (p.trabalhadorId === "-" || !p.data) continue;
-      const key = `${p.trabalhadorId}|${p.dataStr}`;
-      if (!byWorkerDay.has(key)) byWorkerDay.set(key, { workerId: p.trabalhadorId, date: p.data, times: [] });
-      const mins = timeToMinutes(p.hora);
-      if (mins != null) byWorkerDay.get(key).times.push(mins);
+      const key = monthKey(p.data);
+      if (!monthsMap.has(key)) monthsMap.set(key, monthLabel(p.data));
     }
-    const workerDays = Array.from(byWorkerDay.values()).map((d) => ({ ...d, firstPunch: d.times.length ? Math.min(...d.times) : null }));
-
-    const habitualEntry = new Map();
-    for (const [workerId, days] of Utils.groupBy(workerDays.filter((d) => d.firstPunch != null), (d) => d.workerId).entries()) {
-      const sorted = days.map((d) => d.firstPunch).sort((a, b) => a - b);
-      habitualEntry.set(workerId, sorted[Math.floor(sorted.length / 2)]);
-    }
-    for (const d of workerDays) {
-      const habitual = habitualEntry.get(d.workerId);
-      d.atraso = d.firstPunch != null && habitual != null && d.firstPunch > habitual + TOLERANCIA_ATRASO_MIN;
-    }
-
-    const monthlyMap = new Map();
-    for (const d of workerDays) {
-      const mk = monthKey(d.date);
-      const key = `${d.workerId}|${mk}`;
-      if (!monthlyMap.has(key)) {
-        monthlyMap.set(key, { workerId: d.workerId, mesKey: mk, mesLabel: monthLabel(d.date), diasSet: new Set(), atrasos: 0, marcacoes: 0 });
-      }
-      const rec = monthlyMap.get(key);
-      rec.diasSet.add(d.date.toDateString());
-      if (d.atraso) rec.atrasos++;
-    }
-    for (const p of punches) {
-      if (p.trabalhadorId === "-" || !p.data) continue;
-      const key = `${p.trabalhadorId}|${monthKey(p.data)}`;
-      if (monthlyMap.has(key)) monthlyMap.get(key).marcacoes++;
-    }
-    for (const rec of monthlyMap.values()) {
-      const worker = workerMap.get(rec.workerId);
-      const [y, m] = rec.mesKey.split("-").map(Number);
-      const monthStart = new Date(y, m - 1, 1);
-      const monthEnd = new Date(y, m, 0);
-      const rangeStart = worker && worker.primeira && worker.primeira > monthStart ? worker.primeira : monthStart;
-      const rangeEnd = worker && worker.ultima && worker.ultima < monthEnd ? worker.ultima : monthEnd;
-      let faltas = 0;
-      for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
-        if (isWeekday(d) && !rec.diasSet.has(d.toDateString())) faltas++;
-      }
-      rec.faltas = faltas;
-    }
-
-    const monthlyRows = Array.from(monthlyMap.values())
-      .map((rec) => ({
-        mes: rec.mesLabel, mesKey: rec.mesKey,
-        trabalhadorId: rec.workerId, nome: (workerMap.get(rec.workerId) || {}).nome || "(não informado)",
-        diasComMarcacao: rec.diasSet.size, faltas: rec.faltas || 0, atrasos: rec.atrasos, marcacoes: rec.marcacoes,
-      }))
-      .sort((a, b) => (a.mesKey === b.mesKey ? a.nome.localeCompare(b.nome, "pt-BR") : a.mesKey.localeCompare(b.mesKey)));
-
-    const totalFaltas = Utils.sum(monthlyRows.map((r) => r.faltas));
-    const totalAtrasos = Utils.sum(monthlyRows.map((r) => r.atrasos));
-
-    const monthlyTotalsMap = Utils.groupBy(monthlyRows, (r) => r.mes);
-    const monthlyTotals = Array.from(monthlyTotalsMap.entries())
-      .map(([mes, rows]) => ({ mes, mesKey: rows[0].mesKey, faltas: Utils.sum(rows.map((r) => r.faltas)), atrasos: Utils.sum(rows.map((r) => r.atrasos)) }))
-      .sort((a, b) => a.mesKey.localeCompare(b.mesKey));
-
-    // ---------------- Seções do relatório ----------------
-    const sections = [];
-
-    if (companies.length) {
-      sections.push({
-        id: "companies", title: "Empresas / Estabelecimentos identificados", icon: "bi-building",
-        type: "table",
-        columns: [
-          { key: "nsr", label: "NSR" }, { key: "tipo", label: "Tipo" },
-          { key: "dataStr", label: "Data" }, { key: "hora", label: "Hora" },
-          { key: "documento", label: "CNPJ/CPF/CEI" }, { key: "nome", label: "Nome / Razão Social" },
-          { key: "endereco", label: "Endereço" },
-        ],
-        rows: companies,
-      });
-    }
-
-    sections.push({
-      id: "workers", title: "Trabalhadores identificados", icon: "bi-people-fill",
-      type: "table",
-      columns: [
-        { key: "id", label: "PIS/CPF/Matrícula" }, { key: "nome", label: "Nome" },
-        { key: "marcacoes", label: "Qtd. Marcações", numeric: true },
-        { key: "primeiraStr", label: "Primeira marcação" }, { key: "ultimaStr", label: "Última marcação" },
-      ],
-      rows: workers,
-      numericStats: true,
-    });
-
-    if (monthlyRows.length) {
-      sections.push({
-        id: "monthly", title: "Relatório mensal de frequência (faltas e atrasos estimados)", icon: "bi-calendar-week",
-        type: "table",
-        description: "Estimativa calculada a partir do próprio arquivo (o AFD não informa a escala oficial de horário): falta = dia útil sem nenhuma marcação; atraso = 1ª marcação do dia além do horário habitual de entrada do trabalhador.",
-        columns: [
-          { key: "mes", label: "Mês" }, { key: "nome", label: "Funcionário" },
-          { key: "diasComMarcacao", label: "Dias c/ marcação", numeric: true },
-          { key: "faltas", label: "Faltas (estim.)", numeric: true, cellClass: (row) => (row.faltas > 0 ? "text-danger fw-bold" : "") },
-          { key: "atrasos", label: "Atrasos (estim.)", numeric: true, cellClass: (row) => (row.atrasos > 0 ? "text-warning-emphasis fw-bold" : "") },
-          { key: "marcacoes", label: "Marcações", numeric: true },
-        ],
-        rows: monthlyRows,
-        numericStats: true,
-      });
-    }
-
-    sections.push({
-      id: "punches", title: "Marcações de ponto", icon: "bi-fingerprint",
-      type: "table",
-      columns: [
-        { key: "nsr", label: "NSR" }, { key: "formato", label: "Formato" },
-        { key: "dataStr", label: "Data" }, { key: "hora", label: "Hora" },
-        { key: "evento", label: "Evento" }, { key: "trabalhadorId", label: "Identificador" },
-        { key: "trabalhadorNome", label: "Trabalhador" },
-      ],
-      rows: punches,
-    });
-
-    if (clockAdjusts.length) {
-      sections.push({
-        id: "adjusts", title: "Ajustes de relógio do equipamento", icon: "bi-clock-history",
-        type: "table",
-        columns: [
-          { key: "nsr", label: "NSR" }, { key: "dataNova", label: "Nova data" }, { key: "horaNova", label: "Nova hora" },
-          { key: "dataAnterior", label: "Data anterior" }, { key: "horaAnterior", label: "Hora anterior" },
-        ],
-        rows: clockAdjusts,
-      });
-    }
-
-    if (otherRecords.length) {
-      sections.push({
-        id: "others", title: "Outros registros (tipo 6 / não classificados)", icon: "bi-list-check",
-        type: "table",
-        columns: [
-          { key: "nsr", label: "NSR" }, { key: "data", label: "Data" }, { key: "hora", label: "Hora" },
-          { key: "evento", label: "Evento" }, { key: "trabalhadorId", label: "Identificador" }, { key: "trabalhadorNome", label: "Descrição" },
-        ],
-        rows: otherRecords,
-      });
-    }
-
-    if (unparsed.length) {
-      const preview = unparsed.slice(0, 500).map((u) => `L${u.lineNumber}: ${u.raw}  [${u.reason}]`).join("\n");
-      sections.push({
-        id: "raw", title: `Linhas não estruturadas (${unparsed.length})`, icon: "bi-file-earmark-text",
-        type: "text",
-        content: preview + (unparsed.length > 500 ? `\n\n... e mais ${unparsed.length - 500} linha(s).` : ""),
-      });
-    }
-
-    if (trailerRaw) {
-      sections.push({
-        id: "trailer", title: "Rodapé do arquivo (registro tipo 9)", icon: "bi-flag-fill",
-        type: "text",
-        content: trailerRaw + "\n\n(Os totais acima são exibidos como no arquivo original; os indicadores deste relatório são recalculados a partir da leitura completa do arquivo, para conferência.)",
-      });
-    }
-
-    // ---------------- Estatísticas (KPIs) ----------------
-    const stats = [
-      { label: "Total de linhas", value: Utils.formatNumber(lines.length), icon: "bi-list-ol", color: "primary" },
-      { label: "Marcações de ponto", value: Utils.formatNumber(punches.length), icon: "bi-fingerprint", color: "success" },
-      { label: "Trabalhadores distintos", value: Utils.formatNumber(workers.length), icon: "bi-people-fill", color: "info" },
-      { label: "Estabelecimentos", value: Utils.formatNumber(companies.length), icon: "bi-building", color: "warning" },
-      { label: "Ajustes de relógio", value: Utils.formatNumber(clockAdjusts.length), icon: "bi-clock-history", color: "danger" },
-      {
-        label: "Período coberto",
-        value: dateRange ? `${Utils.formatDateShort(dateRange.min)} — ${Utils.formatDateShort(dateRange.max)}` : "-",
-        icon: "bi-calendar-range", color: "secondary",
-      },
-      { label: "Faltas estimadas", value: Utils.formatNumber(totalFaltas), icon: "bi-calendar-x", color: "danger" },
-      { label: "Atrasos estimados", value: Utils.formatNumber(totalAtrasos), icon: "bi-alarm", color: "warning" },
-    ];
-
-    // ---------------- Gráficos ----------------
-    const charts = [
-      {
-        id: "chartTypeDist", title: "Distribuição por tipo de registro", type: "doughnut",
-        labels: typeDist.map((t) => t.tipo), datasets: [{ label: "Quantidade", data: typeDist.map((t) => t.qtd) }],
-      },
-      {
-        id: "chartPerDay", title: "Marcações por dia", type: "bar",
-        labels: perDay.map((d) => d.data), datasets: [{ label: "Marcações", data: perDay.map((d) => d.qtd) }],
-      },
-      {
-        id: "chartTopWorkers", title: "Top 10 trabalhadores por marcações", type: "bar", horizontal: true,
-        labels: workers.slice(0, 10).map((w) => w.nome), datasets: [{ label: "Marcações", data: workers.slice(0, 10).map((w) => w.marcacoes) }],
-      },
-    ];
-    if (eventDist.length) {
-      charts.push({
-        id: "chartEvents", title: "Distribuição por código de evento", type: "pie",
-        labels: eventDist.map((e) => `${e.evento} (${EVENT_LEGEND[e.evento] || "?"})`),
-        datasets: [{ label: "Quantidade", data: eventDist.map((e) => e.qtd) }],
-      });
-    }
-    if (monthlyTotals.length) {
-      charts.push({
-        id: "chartMonthly", title: "Faltas e atrasos por mês (estimativa)", type: "bar",
-        labels: monthlyTotals.map((m) => m.mes),
-        datasets: [
-          { label: "Faltas", data: monthlyTotals.map((m) => m.faltas) },
-          { label: "Atrasos", data: monthlyTotals.map((m) => m.atrasos) },
-        ],
-      });
-    }
+    const months = Array.from(monthsMap.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.key.localeCompare(b.key));
 
     return {
       format: "AFD",
       formatDescription: "Arquivo Fonte de Dados (REP) — registro eletrônico de ponto",
       confidence: detect(content),
-      stats,
-      charts,
-      sections,
+      stats: [],
+      charts: [],
+      sections: [],
+      attendance: {
+        companyName: companyName || "-",
+        companyDoc: companyDoc || null,
+        employees,
+        months,
+        // Datas serializadas em ISO para sobreviver ao histórico (LocalStorage).
+        punches: punches.map((p) => ({ workerId: p.workerId, dataISO: p.data.toISOString(), hora: p.hora })),
+      },
     };
   }
 

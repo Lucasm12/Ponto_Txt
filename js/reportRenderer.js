@@ -66,6 +66,16 @@
         </div>`);
     }
 
+    // Alguns parsers (ex.: AFD) optam por uma visão dedicada em vez do
+    // dashboard genérico de tabelas/gráficos abaixo — nesse caso delegamos
+    // totalmente a renderização, sem alterar a estrutura principal do app.
+    if (doc.attendance) {
+      const wrap = document.createElement("div");
+      container.appendChild(wrap);
+      AttendanceView.render(wrap, doc, fileMeta);
+      return;
+    }
+
     container.insertAdjacentHTML("beforeend", renderHero(fileMeta, doc));
     container.insertAdjacentHTML("beforeend", StatCard.renderStatRow(doc.stats));
     container.insertAdjacentHTML("beforeend", renderChartsRow(doc.charts));

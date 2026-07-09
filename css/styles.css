@@ -150,9 +150,9 @@ body{
 
 /* ---------- Tabelas ---------- */
 .ti-table-toolbar{ display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-bottom:.85rem; }
-.ti-table-toolbar .search-wrap{ position:relative; flex:1 1 220px; min-width:200px; }
-.ti-table-toolbar .search-wrap i{ position:absolute; left:.7rem; top:50%; transform:translateY(-50%); color:var(--bs-secondary-color); }
-.ti-table-toolbar .search-wrap input{ padding-left:2.1rem; }
+.search-wrap{ position:relative; flex:1 1 220px; min-width:200px; }
+.search-wrap i{ position:absolute; left:.7rem; top:50%; transform:translateY(-50%); color:var(--bs-secondary-color); }
+.search-wrap input{ padding-left:2.1rem; }
 
 .ti-table-wrap{ overflow-x:auto; }
 table.ti-table{ width:100%; font-size:.88rem; }
@@ -222,6 +222,14 @@ table.ti-table td, table.ti-table th{ vertical-align:middle; }
   width: min(90vw, 360px);
   text-align:center;
 }
+
+/* ---------- Espelho de ponto (AttendanceView) ---------- */
+.espelho-card{ max-width:980px; margin:0 auto; }
+.espelho-header{ display:grid; grid-template-columns:1fr 1fr; gap:.25rem .75rem; }
+.espelho-header > div:last-child{ grid-column:1 / -1; }
+.espelho-table{ font-size:.85rem; }
+.espelho-table td, .espelho-table th{ vertical-align:middle; }
+.espelho-table tfoot td{ background: var(--bs-tertiary-bg); }
 
 /* ---------- Utilitário ---------- */
 .cursor-pointer{ cursor:pointer; }
