@@ -232,4 +232,6 @@ table.ti-table td, table.ti-table th{ vertical-align:middle; }
   .section-card, .ti-card{ box-shadow:none !important; border:1px solid #ccc !important; break-inside: avoid; }
   body{ background:#fff !important; }
   .raw-text-box{ max-height:none !important; }
+  .espelho-page{ page-break-after: always; }
+  .espelho-page:last-child{ page-break-after: auto; }
 }

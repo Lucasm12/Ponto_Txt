@@ -164,7 +164,12 @@
         <div class="ti-card section-card">
           <div class="section-header">
             <h2 class="section-title"><i class="bi bi-people-fill text-primary"></i>Funcionários</h2>
-            <span class="badge text-bg-secondary section-badge" id="attListCount"></span>
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-outline-primary btn-sm d-print-none" id="attPrintAllBtn">
+                <i class="bi bi-printer me-1"></i>Espelho de todos
+              </button>
+              <span class="badge text-bg-secondary section-badge" id="attListCount"></span>
+            </div>
           </div>
           <div class="section-body p-0">
             <table class="table table-hover align-middle mb-0">
@@ -189,6 +194,7 @@
       listCount: root.querySelector("#attListCount"),
       listView: root.querySelector("#attListView"),
       detailView: root.querySelector("#attDetailView"),
+      printAllBtn: root.querySelector("#attPrintAllBtn"),
     };
 
     els.monthSelect.innerHTML = att.months.map((m) => `<option value="${m.key}">${Utils.escapeHtml(m.label)}</option>`).join("")
@@ -233,14 +239,14 @@
       });
     }
 
-    function openDetail(workerId, mKey) {
+    /** Monta o miolo (cabeçalho + tabela de dias + rodapé) do espelho de um funcionário/mês — reaproveitado tanto na visão individual quanto na impressão de todos. */
+    function espelhoBodyHTML(workerId, mKey, monthLabelText) {
       const employee = att.employees.find((e) => e.id === workerId);
       const [year, month] = mKey.split("-").map(Number);
       const workerPunches = punchesByWorker.get(workerId) || [];
       const dayMap = groupByDay(workerPunches);
       const schedule = inferSchedule(dayMap);
       const { rows, totals } = buildEspelho(dayMap, schedule, year, month - 1);
-      const monthLabelText = att.months.find((m) => m.key === mKey)?.label || mKey;
       const periodo = `01/${String(month).padStart(2, "0")}/${year} a ${String(rows.length).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
 
       const jornadaTexto = Object.entries(schedule)
@@ -248,69 +254,102 @@
         .map(([wd, s]) => `${DIA_LABELS[wd]}: ${minutesToHHMM(s.entrada)} (CH ${minutesToHHMM(s.ch)})`)
         .join(" · ") || "Não foi possível identificar uma jornada habitual.";
 
+      return `
+        <h4 class="text-center fw-bold mb-3">Espelho de Ponto — ${Utils.escapeHtml(monthLabelText)}</h4>
+        <div class="espelho-header small mb-3">
+          <div><b>Empresa:</b> ${Utils.escapeHtml(companyLabel)}</div>
+          <div><b>Funcionário:</b> ${Utils.escapeHtml(employee ? employee.nome : "-")}</div>
+          <div><b>Matrícula/PIS:</b> ${Utils.escapeHtml(workerId)}</div>
+          <div><b>Período:</b> ${periodo}</div>
+          <div><b>Jornada habitual identificada:</b> ${Utils.escapeHtml(jornadaTexto)}</div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered espelho-table mb-2">
+            <thead><tr>
+              <th>Data</th><th>Pontos</th>
+              <th class="text-end">CH</th><th class="text-end">HT</th>
+              <th class="text-end">EX</th><th class="text-end">AT</th><th class="text-end">FA</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map((r) => `
+                <tr class="${r.isWeekend ? "table-secondary" : ""}">
+                  <td>${String(r.day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${r.diaSemana}</td>
+                  <td>${Utils.escapeHtml(r.pontos)}${r.incomplete ? ' <span class="badge text-bg-warning-subtle text-warning-emphasis">incompleta</span>' : ""}</td>
+                  <td class="text-end">${fmtOrDash(r.ch)}</td>
+                  <td class="text-end">${fmtOrDash(r.ht)}</td>
+                  <td class="text-end">${r.ex > 0 ? `<span class="text-primary fw-bold">${minutesToHHMM(r.ex)}</span>` : ""}</td>
+                  <td class="text-end">${r.at > 0 ? `<span class="text-warning-emphasis fw-bold">${minutesToHHMM(r.at)}</span>` : ""}</td>
+                  <td class="text-end">${r.fa > 0 ? `<span class="text-danger fw-bold">${minutesToHHMM(r.fa)}</span>` : ""}</td>
+                </tr>`).join("")}
+            </tbody>
+            <tfoot>
+              <tr class="fw-bold">
+                <td colspan="2">Totais do mês</td>
+                <td class="text-end">${minutesToHHMM(totals.ch)}</td>
+                <td class="text-end">${minutesToHHMM(totals.ht)}</td>
+                <td class="text-end">${minutesToHHMM(totals.ex)}</td>
+                <td class="text-end">${minutesToHHMM(totals.at)}</td>
+                <td class="text-end">${minutesToHHMM(totals.fa)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="small text-secondary mt-2 mb-0">
+          Estimativa calculada a partir do histórico de marcações do próprio arquivo (o AFD não informa a escala
+          oficial de horário/jornada, cargo, departamento ou data de admissão). CH = carga horária esperada ·
+          HT = horas trabalhadas · EX = horas extras · AT = atraso · FA = falta.
+        </p>`;
+    }
+
+    function backToList() {
+      els.detailView.classList.add("d-none");
+      els.listView.classList.remove("d-none");
+    }
+
+    function openDetail(workerId, mKey) {
+      const monthLabelText = att.months.find((m) => m.key === mKey)?.label || mKey;
       els.detailView.innerHTML = `
         <div class="ti-card p-4 espelho-card">
           <div class="d-flex justify-content-between align-items-center mb-3 d-print-none">
             <button class="btn btn-outline-secondary btn-sm" id="attBackBtn"><i class="bi bi-arrow-left me-1"></i>Voltar à lista</button>
             <button class="btn btn-primary btn-sm" id="attPrintBtn"><i class="bi bi-printer me-1"></i>Imprimir / PDF</button>
           </div>
-          <h4 class="text-center fw-bold mb-3">Espelho de Ponto — ${Utils.escapeHtml(monthLabelText)}</h4>
-          <div class="espelho-header small mb-3">
-            <div><b>Empresa:</b> ${Utils.escapeHtml(companyLabel)}</div>
-            <div><b>Funcionário:</b> ${Utils.escapeHtml(employee ? employee.nome : "-")}</div>
-            <div><b>Matrícula/PIS:</b> ${Utils.escapeHtml(workerId)}</div>
-            <div><b>Período:</b> ${periodo}</div>
-            <div><b>Jornada habitual identificada:</b> ${Utils.escapeHtml(jornadaTexto)}</div>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm table-bordered espelho-table mb-2">
-              <thead><tr>
-                <th>Data</th><th>Pontos</th>
-                <th class="text-end">CH</th><th class="text-end">HT</th>
-                <th class="text-end">EX</th><th class="text-end">AT</th><th class="text-end">FA</th>
-              </tr></thead>
-              <tbody>
-                ${rows.map((r) => `
-                  <tr class="${r.isWeekend ? "table-secondary" : ""}">
-                    <td>${String(r.day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${r.diaSemana}</td>
-                    <td>${Utils.escapeHtml(r.pontos)}${r.incomplete ? ' <span class="badge text-bg-warning-subtle text-warning-emphasis">incompleta</span>' : ""}</td>
-                    <td class="text-end">${fmtOrDash(r.ch)}</td>
-                    <td class="text-end">${fmtOrDash(r.ht)}</td>
-                    <td class="text-end">${r.ex > 0 ? `<span class="text-primary fw-bold">${minutesToHHMM(r.ex)}</span>` : ""}</td>
-                    <td class="text-end">${r.at > 0 ? `<span class="text-warning-emphasis fw-bold">${minutesToHHMM(r.at)}</span>` : ""}</td>
-                    <td class="text-end">${r.fa > 0 ? `<span class="text-danger fw-bold">${minutesToHHMM(r.fa)}</span>` : ""}</td>
-                  </tr>`).join("")}
-              </tbody>
-              <tfoot>
-                <tr class="fw-bold">
-                  <td colspan="2">Totais do mês</td>
-                  <td class="text-end">${minutesToHHMM(totals.ch)}</td>
-                  <td class="text-end">${minutesToHHMM(totals.ht)}</td>
-                  <td class="text-end">${minutesToHHMM(totals.ex)}</td>
-                  <td class="text-end">${minutesToHHMM(totals.at)}</td>
-                  <td class="text-end">${minutesToHHMM(totals.fa)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <p class="small text-secondary mt-2 mb-0">
-            Estimativa calculada a partir do histórico de marcações do próprio arquivo (o AFD não informa a escala
-            oficial de horário/jornada). CH = carga horária esperada · HT = horas trabalhadas · EX = horas extras ·
-            AT = atraso · FA = falta.
-          </p>
+          ${espelhoBodyHTML(workerId, mKey, monthLabelText)}
         </div>`;
 
       els.listView.classList.add("d-none");
       els.detailView.classList.remove("d-none");
-      els.detailView.querySelector("#attBackBtn").addEventListener("click", () => {
-        els.detailView.classList.add("d-none");
-        els.listView.classList.remove("d-none");
-      });
+      els.detailView.querySelector("#attBackBtn").addEventListener("click", backToList);
+      els.detailView.querySelector("#attPrintBtn").addEventListener("click", () => window.print());
+    }
+
+    /** Gera o espelho de ponto de todos os funcionários com marcação no mês, um por página, para impressão/PDF em lote. */
+    function openAllDetail(mKey) {
+      const monthLabelText = att.months.find((m) => m.key === mKey)?.label || mKey;
+      const rows = att.employees
+        .map((e) => ({ ...e, dias: daysWithPunchInMonth(e.id, mKey) }))
+        .filter((e) => e.dias > 0)
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+      els.detailView.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3 d-print-none">
+          <button class="btn btn-outline-secondary btn-sm" id="attBackBtn"><i class="bi bi-arrow-left me-1"></i>Voltar à lista</button>
+          <button class="btn btn-primary btn-sm" id="attPrintBtn"><i class="bi bi-printer me-1"></i>Imprimir / PDF (${rows.length} funcionário(s))</button>
+        </div>
+        ${rows.map((e) => `
+          <div class="ti-card p-4 espelho-card espelho-page">
+            ${espelhoBodyHTML(e.id, mKey, monthLabelText)}
+          </div>`).join("")}`;
+
+      els.listView.classList.add("d-none");
+      els.detailView.classList.remove("d-none");
+      els.detailView.querySelector("#attBackBtn").addEventListener("click", backToList);
       els.detailView.querySelector("#attPrintBtn").addEventListener("click", () => window.print());
     }
 
     els.monthSelect.addEventListener("change", renderList);
     els.search.addEventListener("input", Utils.debounce((e) => { state.search = e.target.value; renderList(); }, 200));
+    els.printAllBtn.addEventListener("click", () => openAllDetail(els.monthSelect.value));
 
     renderList();
   }
