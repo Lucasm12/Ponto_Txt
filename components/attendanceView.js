@@ -279,8 +279,8 @@
       return `
         <div class="alert alert-light border small d-flex align-items-center gap-2 mb-3 d-print-none">
           <i class="bi bi-pencil-square text-primary"></i>
-          <div>Os campos abaixo são estimativas e podem ser <b>editados clicando neles</b> — ajuste o que for
-          necessário antes de imprimir ou gerar o PDF.</div>
+          <div>Os campos do cabeçalho e a coluna <b>Pontos</b> podem ser editados clicando neles — ao ajustar os
+          horários batidos, CH/HT/EX/AT/FA são recalculados automaticamente antes de imprimir ou gerar o PDF.</div>
         </div>
         <h4 class="text-center fw-bold mb-3">Espelho de Ponto — ${Utils.escapeHtml(monthLabelText)}</h4>
         <div class="espelho-header small mb-3">
@@ -302,11 +302,11 @@
                 <tr class="${r.isWeekend ? "table-secondary" : ""}" data-sched-entrada="${r.schedEntrada != null ? r.schedEntrada : ""}">
                   <td>${String(r.day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${r.diaSemana}</td>
                   <td><span class="editable-field editable-pontos" contenteditable="true">${Utils.escapeHtml(r.pontos)}</span> <span class="badge text-bg-warning-subtle text-warning-emphasis incomplete-badge${r.incomplete ? "" : " d-none"}">incompleta</span></td>
-                  <td class="text-end"><span class="editable-field editable-time" data-col="ch" contenteditable="true">${fmtOrDash(r.ch)}</span></td>
-                  <td class="text-end"><span class="editable-field editable-time" data-col="ht" contenteditable="true">${fmtOrDash(r.ht)}</span></td>
-                  <td class="text-end"><span class="editable-field editable-time${r.ex > 0 ? " text-primary fw-bold" : ""}" data-col="ex" contenteditable="true">${r.ex > 0 ? minutesToHHMM(r.ex) : ""}</span></td>
-                  <td class="text-end"><span class="editable-field editable-time${r.at > 0 ? " text-warning-emphasis fw-bold" : ""}" data-col="at" contenteditable="true">${r.at > 0 ? minutesToHHMM(r.at) : ""}</span></td>
-                  <td class="text-end"><span class="editable-field editable-time${r.fa > 0 ? " text-danger fw-bold" : ""}" data-col="fa" contenteditable="true">${r.fa > 0 ? minutesToHHMM(r.fa) : ""}</span></td>
+                  <td class="text-end" data-col="ch">${fmtOrDash(r.ch)}</td>
+                  <td class="text-end" data-col="ht">${fmtOrDash(r.ht)}</td>
+                  <td class="text-end${r.ex > 0 ? " text-primary fw-bold" : ""}" data-col="ex">${r.ex > 0 ? minutesToHHMM(r.ex) : ""}</td>
+                  <td class="text-end${r.at > 0 ? " text-warning-emphasis fw-bold" : ""}" data-col="at">${r.at > 0 ? minutesToHHMM(r.at) : ""}</td>
+                  <td class="text-end${r.fa > 0 ? " text-danger fw-bold" : ""}" data-col="fa">${r.fa > 0 ? minutesToHHMM(r.fa) : ""}</td>
                 </tr>`).join("")}
             </tbody>
             <tfoot>
@@ -335,11 +335,11 @@
       el.classList.add("recalc-flash");
     }
 
-    /** Torna os campos do(s) espelho(s) dentro de scopeEl editáveis: o clique/foco seleciona
-     * o conteúdo atual (para sobrescrever sem precisar apagar manualmente), Enter confirma em
-     * vez de quebrar linha, e a edição de Pontos/CH/HT/EX/AT/FA recalcula os totais do rodapé
-     * daquela tabela — em tempo real enquanto digita, e com um destaque piscando ao confirmar
-     * (blur). Editar Pontos (ou CH) também recalcula HT/EX/AT/FA daquela mesma linha. */
+    /** Torna editável apenas o campo Pontos do(s) espelho(s) dentro de scopeEl (CH/HT/EX/AT/FA
+     * são somente leitura, calculados automaticamente a partir dele). O clique/foco seleciona o
+     * conteúdo atual, Enter confirma em vez de quebrar linha, e a edição recalcula ao vivo
+     * HT/EX/AT/FA daquela linha e os totais do rodapé — com um destaque piscando ao confirmar
+     * (blur) para deixar claro que recalculou. */
     function wireEspelhoEditing(scopeEl) {
       scopeEl.querySelectorAll(".editable-field").forEach((el) => {
         el.addEventListener("focus", () => {
@@ -355,10 +355,9 @@
       });
       scopeEl.querySelectorAll(".espelho-table").forEach((table) => {
         const COLS = ["ch", "ht", "ex", "at", "fa"];
-        const HIGHLIGHT = { ex: "text-primary", at: "text-warning-emphasis", fa: "text-danger" };
         const recalcTotals = (highlightAll) => {
           const totals = { ch: 0, ht: 0, ex: 0, at: 0, fa: 0 };
-          table.querySelectorAll("tbody .editable-time").forEach((el) => {
+          table.querySelectorAll("tbody [data-col]").forEach((el) => {
             totals[el.dataset.col] += parseTimeInput(el.textContent);
           });
           COLS.forEach((col) => {
@@ -371,8 +370,8 @@
           });
         };
 
-        /** Recalcula HT/EX/AT/FA (e o aviso de "incompleta") da linha `tr`, a partir dos Pontos
-         * e da CH atualmente exibidos nela — replica a edição de Pontos/CH pelas demais colunas. */
+        /** Recalcula CH/HT/EX/AT/FA (e o aviso de "incompleta") da linha `tr`, a partir dos
+         * horários batidos atualmente no campo Pontos — essas colunas são somente leitura. */
         const recalcRowFromPontos = (tr, highlight) => {
           const pontosEl = tr.querySelector(".editable-pontos");
           const chEl = tr.querySelector('[data-col="ch"]');
@@ -399,23 +398,6 @@
 
           if (highlight) [htEl, exEl, atEl, faEl].forEach(flash);
         };
-
-        table.querySelectorAll("tbody .editable-time").forEach((el) => {
-          const tr = el.closest("tr");
-          el.addEventListener("input", () => {
-            if (el.dataset.col === "ch") recalcRowFromPontos(tr, false);
-            recalcTotals(false);
-          });
-          el.addEventListener("blur", () => {
-            const mins = parseTimeInput(el.textContent);
-            el.textContent = mins ? minutesToHHMM(mins) : "";
-            const cls = HIGHLIGHT[el.dataset.col];
-            if (cls) { el.classList.toggle(cls, mins > 0); el.classList.toggle("fw-bold", mins > 0); }
-            flash(el);
-            if (el.dataset.col === "ch") recalcRowFromPontos(tr, true);
-            recalcTotals(true);
-          });
-        });
 
         table.querySelectorAll("tbody .editable-pontos").forEach((el) => {
           const tr = el.closest("tr");
