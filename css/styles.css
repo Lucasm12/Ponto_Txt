@@ -228,6 +228,12 @@ table.ti-table td, table.ti-table th{ vertical-align:middle; }
   outline-offset: 1px;
   background: var(--bs-body-bg);
 }
+/* Pisca rapidamente ao confirmar uma edição, para deixar claro que os totais foram recalculados. */
+@keyframes ti-recalc-flash{
+  0%{ background-color: color-mix(in srgb, var(--ti-primary) 35%, transparent); }
+  100%{ background-color: transparent; }
+}
+.recalc-flash{ animation: ti-recalc-flash .7s ease; border-radius:4px; }
 
 /* ---------- Utilitário ---------- */
 .cursor-pointer{ cursor:pointer; }
@@ -251,4 +257,5 @@ table.ti-table td, table.ti-table th{ vertical-align:middle; }
   .espelho-page:last-child{ page-break-after: auto; }
   .editable-field{ padding:0; margin:0; }
   .editable-field:hover, .editable-field:focus{ outline:none !important; background:transparent !important; }
+  .recalc-flash{ animation:none !important; background:transparent !important; }
 }

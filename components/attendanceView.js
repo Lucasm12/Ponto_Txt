@@ -312,10 +312,26 @@
         </p>`;
     }
 
-    /** Torna os campos do(s) espelho(s) dentro de scopeEl editáveis: Enter confirma em vez de
-     * quebrar linha, e a edição de CH/HT/EX/AT/FA recalcula os totais do rodapé daquela tabela. */
+    /** Reinicia uma animação CSS num elemento mesmo que ela já tenha sido aplicada antes. */
+    function flash(el) {
+      el.classList.remove("recalc-flash");
+      void el.offsetWidth; // força reflow para a animação poder ser reiniciada
+      el.classList.add("recalc-flash");
+    }
+
+    /** Torna os campos do(s) espelho(s) dentro de scopeEl editáveis: o clique/foco seleciona
+     * o conteúdo atual (para sobrescrever sem precisar apagar manualmente), Enter confirma em
+     * vez de quebrar linha, e a edição de CH/HT/EX/AT/FA recalcula os totais do rodapé daquela
+     * tabela — em tempo real enquanto digita, e com um destaque piscando ao confirmar (blur). */
     function wireEspelhoEditing(scopeEl) {
       scopeEl.querySelectorAll(".editable-field").forEach((el) => {
+        el.addEventListener("focus", () => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        });
         el.addEventListener("keydown", (e) => {
           if (e.key === "Enter") { e.preventDefault(); el.blur(); }
         });
@@ -323,24 +339,29 @@
       scopeEl.querySelectorAll(".espelho-table").forEach((table) => {
         const COLS = ["ch", "ht", "ex", "at", "fa"];
         const HIGHLIGHT = { ex: "text-primary", at: "text-warning-emphasis", fa: "text-danger" };
-        const recalcTotals = () => {
+        const recalcTotals = (highlightAll) => {
           const totals = { ch: 0, ht: 0, ex: 0, at: 0, fa: 0 };
           table.querySelectorAll("tbody .editable-time").forEach((el) => {
             totals[el.dataset.col] += parseTimeInput(el.textContent);
           });
           COLS.forEach((col) => {
             const cell = table.querySelector(`tfoot [data-tot="${col}"]`);
-            if (cell) cell.textContent = minutesToHHMM(totals[col]);
+            if (!cell) return;
+            cell.textContent = minutesToHHMM(totals[col]);
+            // Sempre pisca ao confirmar (blur), mesmo que o valor final seja igual ao já
+            // exibido em tempo real — o objetivo é confirmar visualmente que recalculou.
+            if (highlightAll) flash(cell);
           });
         };
         table.querySelectorAll("tbody .editable-time").forEach((el) => {
-          el.addEventListener("input", recalcTotals);
+          el.addEventListener("input", () => recalcTotals(false));
           el.addEventListener("blur", () => {
             const mins = parseTimeInput(el.textContent);
             el.textContent = mins ? minutesToHHMM(mins) : "";
             const cls = HIGHLIGHT[el.dataset.col];
             if (cls) { el.classList.toggle(cls, mins > 0); el.classList.toggle("fw-bold", mins > 0); }
-            recalcTotals();
+            flash(el);
+            recalcTotals(true);
           });
         });
       });
