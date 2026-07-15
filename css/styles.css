@@ -214,6 +214,21 @@ table.ti-table td, table.ti-table th{ vertical-align:middle; }
 .espelho-table td, .espelho-table th{ vertical-align:middle; }
 .espelho-table tfoot td{ background: var(--bs-tertiary-bg); }
 
+/* Campos editáveis do espelho (ajustes manuais antes de imprimir/gerar o PDF) */
+.editable-field{
+  cursor: text;
+  border-radius: 4px;
+  padding: .05rem .3rem;
+  margin: -.05rem -.3rem;
+  transition: background-color .12s ease, outline-color .12s ease;
+}
+.editable-field:hover{ background: var(--bs-tertiary-bg); }
+.editable-field:focus{
+  outline: 1px dashed var(--ti-primary);
+  outline-offset: 1px;
+  background: var(--bs-body-bg);
+}
+
 /* ---------- Utilitário ---------- */
 .cursor-pointer{ cursor:pointer; }
 .fw-700{ font-weight:700; }
@@ -234,4 +249,6 @@ table.ti-table td, table.ti-table th{ vertical-align:middle; }
   .raw-text-box{ max-height:none !important; }
   .espelho-page{ page-break-after: always; }
   .espelho-page:last-child{ page-break-after: auto; }
+  .editable-field{ padding:0; margin:0; }
+  .editable-field:hover, .editable-field:focus{ outline:none !important; background:transparent !important; }
 }

@@ -26,6 +26,12 @@
     mins = Math.round(Math.abs(mins));
     return `${sign}${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
   }
+  /** Interpreta o texto digitado pelo usuário num campo editável de horas (ex.: "1:30", "-0:15"). */
+  function parseTimeInput(text) {
+    const m = (text || "").trim().match(/^(-)?(\d{1,3}):(\d{1,2})$/);
+    if (!m) return 0;
+    return (m[1] ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+  }
   function pairSumMinutes(sortedTimes) {
     let total = 0;
     for (let i = 0; i + 1 < sortedTimes.length; i += 2) total += sortedTimes[i + 1] - sortedTimes[i];
@@ -255,13 +261,18 @@
         .join(" · ") || "Não foi possível identificar uma jornada habitual.";
 
       return `
+        <div class="alert alert-light border small d-flex align-items-center gap-2 mb-3 d-print-none">
+          <i class="bi bi-pencil-square text-primary"></i>
+          <div>Os campos abaixo são estimativas e podem ser <b>editados clicando neles</b> — ajuste o que for
+          necessário antes de imprimir ou gerar o PDF.</div>
+        </div>
         <h4 class="text-center fw-bold mb-3">Espelho de Ponto — ${Utils.escapeHtml(monthLabelText)}</h4>
         <div class="espelho-header small mb-3">
-          <div><b>Empresa:</b> ${Utils.escapeHtml(companyLabel)}</div>
-          <div><b>Funcionário:</b> ${Utils.escapeHtml(employee ? employee.nome : "-")}</div>
-          <div><b>Matrícula/PIS:</b> ${Utils.escapeHtml(workerId)}</div>
-          <div><b>Período:</b> ${periodo}</div>
-          <div><b>Jornada habitual identificada:</b> ${Utils.escapeHtml(jornadaTexto)}</div>
+          <div><b>Empresa:</b> <span class="editable-field" contenteditable="true">${Utils.escapeHtml(companyLabel)}</span></div>
+          <div><b>Funcionário:</b> <span class="editable-field" contenteditable="true">${Utils.escapeHtml(employee ? employee.nome : "-")}</span></div>
+          <div><b>Matrícula/PIS:</b> <span class="editable-field" contenteditable="true">${Utils.escapeHtml(workerId)}</span></div>
+          <div><b>Período:</b> <span class="editable-field" contenteditable="true">${periodo}</span></div>
+          <div><b>Jornada habitual identificada:</b> <span class="editable-field" contenteditable="true">${Utils.escapeHtml(jornadaTexto)}</span></div>
         </div>
         <div class="table-responsive">
           <table class="table table-sm table-bordered espelho-table mb-2">
@@ -274,22 +285,22 @@
               ${rows.map((r) => `
                 <tr class="${r.isWeekend ? "table-secondary" : ""}">
                   <td>${String(r.day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${r.diaSemana}</td>
-                  <td>${Utils.escapeHtml(r.pontos)}${r.incomplete ? ' <span class="badge text-bg-warning-subtle text-warning-emphasis">incompleta</span>' : ""}</td>
-                  <td class="text-end">${fmtOrDash(r.ch)}</td>
-                  <td class="text-end">${fmtOrDash(r.ht)}</td>
-                  <td class="text-end">${r.ex > 0 ? `<span class="text-primary fw-bold">${minutesToHHMM(r.ex)}</span>` : ""}</td>
-                  <td class="text-end">${r.at > 0 ? `<span class="text-warning-emphasis fw-bold">${minutesToHHMM(r.at)}</span>` : ""}</td>
-                  <td class="text-end">${r.fa > 0 ? `<span class="text-danger fw-bold">${minutesToHHMM(r.fa)}</span>` : ""}</td>
+                  <td><span class="editable-field" contenteditable="true">${Utils.escapeHtml(r.pontos)}</span>${r.incomplete ? ' <span class="badge text-bg-warning-subtle text-warning-emphasis">incompleta</span>' : ""}</td>
+                  <td class="text-end"><span class="editable-field editable-time" data-col="ch" contenteditable="true">${fmtOrDash(r.ch)}</span></td>
+                  <td class="text-end"><span class="editable-field editable-time" data-col="ht" contenteditable="true">${fmtOrDash(r.ht)}</span></td>
+                  <td class="text-end"><span class="editable-field editable-time${r.ex > 0 ? " text-primary fw-bold" : ""}" data-col="ex" contenteditable="true">${r.ex > 0 ? minutesToHHMM(r.ex) : ""}</span></td>
+                  <td class="text-end"><span class="editable-field editable-time${r.at > 0 ? " text-warning-emphasis fw-bold" : ""}" data-col="at" contenteditable="true">${r.at > 0 ? minutesToHHMM(r.at) : ""}</span></td>
+                  <td class="text-end"><span class="editable-field editable-time${r.fa > 0 ? " text-danger fw-bold" : ""}" data-col="fa" contenteditable="true">${r.fa > 0 ? minutesToHHMM(r.fa) : ""}</span></td>
                 </tr>`).join("")}
             </tbody>
             <tfoot>
               <tr class="fw-bold">
                 <td colspan="2">Totais do mês</td>
-                <td class="text-end">${minutesToHHMM(totals.ch)}</td>
-                <td class="text-end">${minutesToHHMM(totals.ht)}</td>
-                <td class="text-end">${minutesToHHMM(totals.ex)}</td>
-                <td class="text-end">${minutesToHHMM(totals.at)}</td>
-                <td class="text-end">${minutesToHHMM(totals.fa)}</td>
+                <td class="text-end" data-tot="ch">${minutesToHHMM(totals.ch)}</td>
+                <td class="text-end" data-tot="ht">${minutesToHHMM(totals.ht)}</td>
+                <td class="text-end" data-tot="ex">${minutesToHHMM(totals.ex)}</td>
+                <td class="text-end" data-tot="at">${minutesToHHMM(totals.at)}</td>
+                <td class="text-end" data-tot="fa">${minutesToHHMM(totals.fa)}</td>
               </tr>
             </tfoot>
           </table>
@@ -299,6 +310,40 @@
           oficial de horário/jornada, cargo, departamento ou data de admissão). CH = carga horária esperada ·
           HT = horas trabalhadas · EX = horas extras · AT = atraso · FA = falta.
         </p>`;
+    }
+
+    /** Torna os campos do(s) espelho(s) dentro de scopeEl editáveis: Enter confirma em vez de
+     * quebrar linha, e a edição de CH/HT/EX/AT/FA recalcula os totais do rodapé daquela tabela. */
+    function wireEspelhoEditing(scopeEl) {
+      scopeEl.querySelectorAll(".editable-field").forEach((el) => {
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); el.blur(); }
+        });
+      });
+      scopeEl.querySelectorAll(".espelho-table").forEach((table) => {
+        const COLS = ["ch", "ht", "ex", "at", "fa"];
+        const HIGHLIGHT = { ex: "text-primary", at: "text-warning-emphasis", fa: "text-danger" };
+        const recalcTotals = () => {
+          const totals = { ch: 0, ht: 0, ex: 0, at: 0, fa: 0 };
+          table.querySelectorAll("tbody .editable-time").forEach((el) => {
+            totals[el.dataset.col] += parseTimeInput(el.textContent);
+          });
+          COLS.forEach((col) => {
+            const cell = table.querySelector(`tfoot [data-tot="${col}"]`);
+            if (cell) cell.textContent = minutesToHHMM(totals[col]);
+          });
+        };
+        table.querySelectorAll("tbody .editable-time").forEach((el) => {
+          el.addEventListener("input", recalcTotals);
+          el.addEventListener("blur", () => {
+            const mins = parseTimeInput(el.textContent);
+            el.textContent = mins ? minutesToHHMM(mins) : "";
+            const cls = HIGHLIGHT[el.dataset.col];
+            if (cls) { el.classList.toggle(cls, mins > 0); el.classList.toggle("fw-bold", mins > 0); }
+            recalcTotals();
+          });
+        });
+      });
     }
 
     function backToList() {
@@ -321,6 +366,7 @@
       els.detailView.classList.remove("d-none");
       els.detailView.querySelector("#attBackBtn").addEventListener("click", backToList);
       els.detailView.querySelector("#attPrintBtn").addEventListener("click", () => window.print());
+      wireEspelhoEditing(els.detailView);
     }
 
     /** Gera o espelho de ponto de todos os funcionários com marcação no mês, um por página, para impressão/PDF em lote. */
@@ -345,6 +391,7 @@
       els.detailView.classList.remove("d-none");
       els.detailView.querySelector("#attBackBtn").addEventListener("click", backToList);
       els.detailView.querySelector("#attPrintBtn").addEventListener("click", () => window.print());
+      wireEspelhoEditing(els.detailView);
     }
 
     els.monthSelect.addEventListener("change", renderList);
