@@ -32,6 +32,14 @@
     if (!m) return 0;
     return (m[1] ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
   }
+  /** Interpreta o texto digitado pelo usuário no campo "Pontos" (ex.: "06:50 12:00 12:00 15:02"),
+   * ignorando tokens inválidos/incompletos (comuns enquanto o usuário ainda está digitando). */
+  function parsePontosTimes(text) {
+    return (text || "").trim().split(/\s+/).filter(Boolean)
+      .map((t) => (/^\d{1,2}:\d{2}$/.test(t) ? timeToMinutes(t) : null))
+      .filter((m) => m != null)
+      .sort((a, b) => a - b);
+  }
   function pairSumMinutes(sortedTimes) {
     let total = 0;
     for (let i = 0; i + 1 < sortedTimes.length; i += 2) total += sortedTimes[i + 1] - sortedTimes[i];
@@ -40,6 +48,33 @@
   function median(arr) {
     const s = arr.slice().sort((a, b) => a - b);
     return s[Math.floor(s.length / 2)];
+  }
+  /** Calcula HT/EX/AT/FA (e se o dia ficou com marcação incompleta) a partir dos pontos batidos,
+   * da carga horária esperada (ch) e do horário habitual de entrada — usada tanto na montagem
+   * inicial do espelho quanto no recálculo ao vivo quando o usuário edita Pontos/CH manualmente. */
+  function calcDayTotals(times, ch, schedEntrada) {
+    let ht = 0, ex = 0, at = 0, fa = 0, incomplete = false;
+    if (ch > 0) {
+      if (times.length >= 2 && times.length % 2 === 0) {
+        const worked = pairSumMinutes(times);
+        ht = Math.min(worked, ch);
+        ex = Math.max(0, worked - ch);
+        const deficit = Math.max(0, ch - worked);
+        const atrasoEntrada = schedEntrada != null ? Math.max(0, times[0] - schedEntrada) : 0;
+        at = Math.min(deficit, atrasoEntrada);
+        fa = deficit - at;
+      } else if (times.length === 0) {
+        fa = ch;
+      } else {
+        // marcação incompleta (número ímpar de batidas) — não dá para apurar com segurança.
+        fa = ch;
+        incomplete = true;
+      }
+    } else if (times.length > 0) {
+      // Trabalhou em um dia sem padrão histórico (provável folga) — conta tudo como extra.
+      ex = pairSumMinutes(times);
+    }
+    return { ht, ex, at, fa, incomplete };
   }
 
   /** Agrupa as marcações de um funcionário por dia (chave local, sem risco de fuso horário). */
@@ -88,33 +123,14 @@
       const times = rec ? rec.times : [];
       const sched = schedule[wd] || { ch: 0, entrada: null };
       const ch = sched.ch;
-
-      let ht = 0, ex = 0, at = 0, fa = 0;
-      if (ch > 0) {
-        if (times.length >= 2) {
-          const worked = pairSumMinutes(times);
-          ht = Math.min(worked, ch);
-          ex = Math.max(0, worked - ch);
-          const deficit = Math.max(0, ch - worked);
-          const atrasoEntrada = sched.entrada != null ? Math.max(0, times[0] - sched.entrada) : 0;
-          at = Math.min(deficit, atrasoEntrada);
-          fa = deficit - at;
-        } else if (times.length === 0) {
-          fa = ch;
-        } else {
-          // marcação incompleta (só entrada, sem saída) — não dá para apurar com segurança.
-          fa = ch;
-        }
-      } else if (times.length > 0) {
-        // Trabalhou em um dia sem padrão histórico (provável folga) — conta tudo como extra.
-        ex = pairSumMinutes(times);
-      }
+      const { ht, ex, at, fa, incomplete } = calcDayTotals(times, ch, sched.entrada);
 
       totals.ch += ch; totals.ht += ht; totals.ex += ex; totals.at += at; totals.fa += fa;
       rows.push({
-        day, dateObj, diaSemana: DIA_LABELS[wd], isWeekend: wd === 0 || wd === 6,
+        day, dateObj, wd, diaSemana: DIA_LABELS[wd], isWeekend: wd === 0 || wd === 6,
+        schedEntrada: sched.entrada,
         pontos: times.map((t) => minutesToHHMM(t)).join("  "),
-        ch, ht, ex, at, fa, incomplete: ch > 0 && times.length === 1,
+        ch, ht, ex, at, fa, incomplete,
       });
     }
     return { rows, totals };
@@ -283,9 +299,9 @@
             </tr></thead>
             <tbody>
               ${rows.map((r) => `
-                <tr class="${r.isWeekend ? "table-secondary" : ""}">
+                <tr class="${r.isWeekend ? "table-secondary" : ""}" data-sched-entrada="${r.schedEntrada != null ? r.schedEntrada : ""}">
                   <td>${String(r.day).padStart(2, "0")}/${String(month).padStart(2, "0")} ${r.diaSemana}</td>
-                  <td><span class="editable-field" contenteditable="true">${Utils.escapeHtml(r.pontos)}</span>${r.incomplete ? ' <span class="badge text-bg-warning-subtle text-warning-emphasis">incompleta</span>' : ""}</td>
+                  <td><span class="editable-field editable-pontos" contenteditable="true">${Utils.escapeHtml(r.pontos)}</span> <span class="badge text-bg-warning-subtle text-warning-emphasis incomplete-badge${r.incomplete ? "" : " d-none"}">incompleta</span></td>
                   <td class="text-end"><span class="editable-field editable-time" data-col="ch" contenteditable="true">${fmtOrDash(r.ch)}</span></td>
                   <td class="text-end"><span class="editable-field editable-time" data-col="ht" contenteditable="true">${fmtOrDash(r.ht)}</span></td>
                   <td class="text-end"><span class="editable-field editable-time${r.ex > 0 ? " text-primary fw-bold" : ""}" data-col="ex" contenteditable="true">${r.ex > 0 ? minutesToHHMM(r.ex) : ""}</span></td>
@@ -321,8 +337,9 @@
 
     /** Torna os campos do(s) espelho(s) dentro de scopeEl editáveis: o clique/foco seleciona
      * o conteúdo atual (para sobrescrever sem precisar apagar manualmente), Enter confirma em
-     * vez de quebrar linha, e a edição de CH/HT/EX/AT/FA recalcula os totais do rodapé daquela
-     * tabela — em tempo real enquanto digita, e com um destaque piscando ao confirmar (blur). */
+     * vez de quebrar linha, e a edição de Pontos/CH/HT/EX/AT/FA recalcula os totais do rodapé
+     * daquela tabela — em tempo real enquanto digita, e com um destaque piscando ao confirmar
+     * (blur). Editar Pontos (ou CH) também recalcula HT/EX/AT/FA daquela mesma linha. */
     function wireEspelhoEditing(scopeEl) {
       scopeEl.querySelectorAll(".editable-field").forEach((el) => {
         el.addEventListener("focus", () => {
@@ -353,14 +370,64 @@
             if (highlightAll) flash(cell);
           });
         };
+
+        /** Recalcula HT/EX/AT/FA (e o aviso de "incompleta") da linha `tr`, a partir dos Pontos
+         * e da CH atualmente exibidos nela — replica a edição de Pontos/CH pelas demais colunas. */
+        const recalcRowFromPontos = (tr, highlight) => {
+          const pontosEl = tr.querySelector(".editable-pontos");
+          const chEl = tr.querySelector('[data-col="ch"]');
+          const htEl = tr.querySelector('[data-col="ht"]');
+          const exEl = tr.querySelector('[data-col="ex"]');
+          const atEl = tr.querySelector('[data-col="at"]');
+          const faEl = tr.querySelector('[data-col="fa"]');
+          const badgeEl = tr.querySelector(".incomplete-badge");
+          if (!pontosEl || !chEl || !htEl || !exEl || !atEl || !faEl) return;
+
+          const times = parsePontosTimes(pontosEl.textContent);
+          const ch = parseTimeInput(chEl.textContent);
+          const schedEntrada = tr.dataset.schedEntrada !== "" ? Number(tr.dataset.schedEntrada) : null;
+          const { ht, ex, at, fa, incomplete } = calcDayTotals(times, ch, schedEntrada);
+
+          htEl.textContent = ht > 0 ? minutesToHHMM(ht) : "";
+          exEl.textContent = ex > 0 ? minutesToHHMM(ex) : "";
+          atEl.textContent = at > 0 ? minutesToHHMM(at) : "";
+          faEl.textContent = fa > 0 ? minutesToHHMM(fa) : "";
+          exEl.classList.toggle("text-primary", ex > 0); exEl.classList.toggle("fw-bold", ex > 0);
+          atEl.classList.toggle("text-warning-emphasis", at > 0); atEl.classList.toggle("fw-bold", at > 0);
+          faEl.classList.toggle("text-danger", fa > 0); faEl.classList.toggle("fw-bold", fa > 0);
+          if (badgeEl) badgeEl.classList.toggle("d-none", !incomplete);
+
+          if (highlight) [htEl, exEl, atEl, faEl].forEach(flash);
+        };
+
         table.querySelectorAll("tbody .editable-time").forEach((el) => {
-          el.addEventListener("input", () => recalcTotals(false));
+          const tr = el.closest("tr");
+          el.addEventListener("input", () => {
+            if (el.dataset.col === "ch") recalcRowFromPontos(tr, false);
+            recalcTotals(false);
+          });
           el.addEventListener("blur", () => {
             const mins = parseTimeInput(el.textContent);
             el.textContent = mins ? minutesToHHMM(mins) : "";
             const cls = HIGHLIGHT[el.dataset.col];
             if (cls) { el.classList.toggle(cls, mins > 0); el.classList.toggle("fw-bold", mins > 0); }
             flash(el);
+            if (el.dataset.col === "ch") recalcRowFromPontos(tr, true);
+            recalcTotals(true);
+          });
+        });
+
+        table.querySelectorAll("tbody .editable-pontos").forEach((el) => {
+          const tr = el.closest("tr");
+          el.addEventListener("input", () => {
+            recalcRowFromPontos(tr, false);
+            recalcTotals(false);
+          });
+          el.addEventListener("blur", () => {
+            const times = parsePontosTimes(el.textContent);
+            el.textContent = times.map((t) => minutesToHHMM(t)).join("  ");
+            flash(el);
+            recalcRowFromPontos(tr, true);
             recalcTotals(true);
           });
         });
